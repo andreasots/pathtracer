@@ -1,15 +1,16 @@
 use crate::camera::Camera;
-use crate::color::Color;
+use crate::color::{Color, FUDGE_FACTOR};
 use crate::scene::Scene;
 use anyhow::{Context, Error};
 use rand::Rng;
 use rand_distr::StandardNormal;
+use rand_distr::Uniform;
 use rayon::prelude::*;
 use std::ffi::OsStr;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use winit::event::{Event, WindowEvent, KeyboardInput, ElementState, VirtualKeyCode};
+use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::ControlFlow;
 
 mod camera;
@@ -28,10 +29,22 @@ struct Vertex {
 impl Vertex {
     fn rectangle(half_width: f32, half_height: f32) -> [Vertex; 4] {
         [
-            Vertex { pos: [-half_width, -half_height], uv: [0.0, 1.0] },
-            Vertex { pos: [-half_width, half_height], uv: [0.0, 0.0] },
-            Vertex { pos: [half_width, -half_height], uv: [1.0, 1.0] },
-            Vertex { pos: [half_width, half_height], uv: [1.0, 0.0] },
+            Vertex {
+                pos: [-half_width, -half_height],
+                uv: [0.0, 1.0],
+            },
+            Vertex {
+                pos: [-half_width, half_height],
+                uv: [0.0, 0.0],
+            },
+            Vertex {
+                pos: [half_width, -half_height],
+                uv: [1.0, 1.0],
+            },
+            Vertex {
+                pos: [half_width, half_height],
+                uv: [1.0, 0.0],
+            },
         ]
     }
 }
@@ -97,18 +110,16 @@ async fn renderer(
                 dimension: wgpu::TextureViewDimension::D2,
                 component_type: wgpu::TextureComponentType::Float,
                 multisampled: false,
-            }
+            },
         }],
         label: None,
     });
 
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        bindings: &[
-            wgpu::Binding {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&texture_view),
-            },
-        ],
+        bindings: &[wgpu::Binding {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&texture_view),
+        }],
         layout: &bind_group_layout,
         label: None,
     });
@@ -161,7 +172,10 @@ async fn renderer(
 
     let mut is_done = done.load(Ordering::Acquire);
 
-    let mut vertex_buffer = device.create_buffer_with_data(bytemuck::cast_slice(&Vertex::rectangle(1.0, 1.0)), wgpu::BufferUsage::VERTEX);
+    let mut vertex_buffer = device.create_buffer_with_data(
+        bytemuck::cast_slice(&Vertex::rectangle(1.0, 1.0)),
+        wgpu::BufferUsage::VERTEX,
+    );
 
     let mut framebuffer = vec![0.0; 4 * width * height];
 
@@ -186,16 +200,29 @@ async fn renderer(
                 Vertex::rectangle(scale_h / scale_w, 1.0)
             };
 
-            vertex_buffer = device.create_buffer_with_data(bytemuck::cast_slice(&vertices), wgpu::BufferUsage::VERTEX);
+            vertex_buffer = device.create_buffer_with_data(
+                bytemuck::cast_slice(&vertices),
+                wgpu::BufferUsage::VERTEX,
+            );
         }
         Event::WindowEvent {
-            event: WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(key), ..}, ..}, ..
-        } => {
-            match key {
-                VirtualKeyCode::Key0 | VirtualKeyCode::Numpad0 => window.set_inner_size(winit::dpi::PhysicalSize::new(width as u32, height as u32)),
-                _ => (),
+            event:
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            state: ElementState::Released,
+                            virtual_keycode: Some(key),
+                            ..
+                        },
+                    ..
+                },
+            ..
+        } => match key {
+            VirtualKeyCode::Key0 | VirtualKeyCode::Numpad0 => {
+                window.set_inner_size(winit::dpi::PhysicalSize::new(width as u32, height as u32))
             }
-        }
+            _ => (),
+        },
         Event::MainEventsCleared => {
             if !is_done {
                 window.request_redraw();
@@ -203,14 +230,20 @@ async fn renderer(
             is_done = done.load(Ordering::Acquire);
         }
         Event::RedrawRequested(..) => {
-            let frame = swap_chain.get_next_texture().expect("failed to get the next frame in the swap chain");
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            let frame = swap_chain
+                .get_next_texture()
+                .expect("failed to get the next frame in the swap chain");
+            let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
             for (dst, src) in framebuffer.iter_mut().zip(buffer.iter()) {
                 *dst = f32::from_bits(src.load(Ordering::Relaxed));
             }
 
-            let framebuffer_buffer = device.create_buffer_with_data(bytemuck::cast_slice(&framebuffer), wgpu::BufferUsage::COPY_SRC);
+            let framebuffer_buffer = device.create_buffer_with_data(
+                bytemuck::cast_slice(&framebuffer),
+                wgpu::BufferUsage::COPY_SRC,
+            );
 
             encoder.copy_buffer_to_texture(
                 wgpu::BufferCopyView {
@@ -245,7 +278,12 @@ async fn renderer(
                 });
                 pass.set_pipeline(&render_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
-                pass.set_vertex_buffer(0, &vertex_buffer, 0, 4 * std::mem::size_of::<Vertex>() as wgpu::BufferAddress);
+                pass.set_vertex_buffer(
+                    0,
+                    &vertex_buffer,
+                    0,
+                    4 * std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                );
                 pass.draw(0..4, 0..1);
             }
 
@@ -270,11 +308,13 @@ fn main() -> Result<(), Error> {
     let (width, height) = scene.camera.resolution;
 
     let mut buffer = Vec::with_capacity(4 * width * height);
-    let uninitialized_buffer_color = Color::from_linear_srgb(
-        rand::thread_rng().gen::<f32>(),
-        rand::thread_rng().gen::<f32>(),
-        rand::thread_rng().gen::<f32>(),
-    );
+    let uninitialized_buffer_color = loop {
+        let wavelength = rand::thread_rng().sample(Uniform::new(360e-9, 830e-9));
+        let color = Color::from_wavelength(wavelength);
+        if color.y() > 0.1 {
+            break color;
+        }
+    };
     for _ in 0..height {
         for _ in 0..width {
             buffer.push(AtomicU32::new(uninitialized_buffer_color.x().to_bits()));
@@ -307,17 +347,18 @@ fn main() -> Result<(), Error> {
                 .flat_map(|y| (0..width).into_par_iter().map(move |x| (x, y)))
                 .for_each(|(x, y)| {
                     let mut rng = rand::thread_rng();
-                    let mut accumulator = Color::new(0.0, 0.0, 0.0);
+                    let mut accumulator = Color::xyz(0.0, 0.0, 0.0);
 
                     for _ in 0..samples {
+                        let wavelength = rng.sample(Uniform::new(360e-9, 830e-9));
                         let x = x as f32 + rng.sample::<f32, _>(StandardNormal) * 0.5;
                         let y = y as f32 + rng.sample::<f32, _>(StandardNormal) * 0.5;
 
                         let ray = camera.generate_ray(x, y);
 
-                        let radiance = scene.radiance(ray, &mut rng, None, 0);
+                        let radiance = scene.radiance(ray, wavelength, &mut rng, None, 0);
 
-                        accumulator += radiance;
+                        accumulator += Color::from_wavelength(wavelength) * radiance * FUDGE_FACTOR;
                     }
 
                     let color = accumulator * (1.0 / (samples as f32));

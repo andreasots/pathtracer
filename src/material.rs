@@ -1,4 +1,4 @@
-use crate::color::Color;
+use crate::color::{Color, SRGB, XYZ};
 use crate::scene::Scene;
 use crate::triangle::{Intersection, Triangle};
 use anyhow::{Context, Error};
@@ -10,11 +10,11 @@ use std::path::Path;
 
 pub enum Texture {
     Texture(DynamicImage),
-    Flat(Color),
+    Flat(Color<SRGB>),
 }
 
 impl Texture {
-    pub fn sample(&self, u: f32, v: f32) -> Color {
+    pub fn sample(&self, u: f32, v: f32) -> Color<SRGB> {
         match self {
             Texture::Texture(tex) => {
                 let w = tex.width();
@@ -29,10 +29,16 @@ impl Texture {
                 let t_x = x - x.floor();
                 let t_y = y - y.floor();
 
-                let p00: Color = tex.get_pixel(x0.rem_euclid(w), y0.rem_euclid(h)).into();
-                let p10: Color = tex.get_pixel((x0 + 1).rem_euclid(w), y0.rem_euclid(h)).into();
-                let p01: Color = tex.get_pixel(x0.rem_euclid(w), (y0 + 1).rem_euclid(h)).into();
-                let p11: Color = tex.get_pixel((x0 + 1).rem_euclid(w), (y0 + 1).rem_euclid(h)).into();
+                let p00: Color<SRGB> = tex.get_pixel(x0.rem_euclid(w), y0.rem_euclid(h)).into();
+                let p10: Color<SRGB> = tex
+                    .get_pixel((x0 + 1).rem_euclid(w), y0.rem_euclid(h))
+                    .into();
+                let p01: Color<SRGB> = tex
+                    .get_pixel(x0.rem_euclid(w), (y0 + 1).rem_euclid(h))
+                    .into();
+                let p11: Color<SRGB> = tex
+                    .get_pixel((x0 + 1).rem_euclid(w), (y0 + 1).rem_euclid(h))
+                    .into();
 
                 let p0 = p00 * (1.0 - t_x) + p10 * t_x;
                 let p1 = p01 * (1.0 - t_x) + p11 * t_x;
@@ -41,6 +47,21 @@ impl Texture {
             }
             Texture::Flat(color) => *color,
         }
+    }
+}
+
+pub struct D65;
+
+impl D65 {
+    pub fn sample(&self, wavelength: f32) -> f32 {
+        const TABLE: &[(u16, f32)] = &include!(concat!(env!("OUT_DIR"), "/d65.rs"));
+
+        let offset = (wavelength * 1e9).floor() - TABLE[0].0 as f32;
+        let index = offset.floor();
+        let alpha = offset - index;
+        let index = index as usize;
+
+        (TABLE[index].1 * (1.0 - alpha) + TABLE[index + 1].1 * alpha) / 100.0
     }
 }
 
@@ -60,9 +81,9 @@ impl Material {
                 .with_context(|| format!("failed to load diffuse texture {:?}", path))?;
             Texture::Texture(tex)
         } else if let Some(color) = mtl.kd {
-            Texture::Flat(Color::from_linear_srgb(color[0], color[1], color[2]))
+            Texture::Flat(Color::srgb(color[0], color[1], color[2]))
         } else {
-            Texture::Flat(Color::new(0.0, 0.75, 0.0))
+            Texture::Flat(Color::srgb(0.75, 0.75, 0.75))
         };
 
         let emit = if let Some(ref path) = mtl.map_ke {
@@ -70,9 +91,9 @@ impl Material {
                 .with_context(|| format!("failed to load emissive texture {:?}", path))?;
             Texture::Texture(tex)
         } else if let Some(color) = mtl.ke {
-            Texture::Flat(Color::from_linear_srgb(color[0], color[1], color[2]))
+            Texture::Flat(Color::srgb(color[0], color[1], color[2]))
         } else {
-            Texture::Flat(Color::new(0.0, 0.0, 0.0))
+            Texture::Flat(Color::srgb(0.0, 0.0, 0.0))
         };
 
         let base_dissolve = mtl.d.unwrap_or(1.0);
@@ -82,21 +103,27 @@ impl Material {
                 .with_context(|| format!("failed to load dissolve texture {:?}", path))?;
             Texture::Texture(tex)
         } else {
-            Texture::Flat(Color::new(0.0, 1.0, 0.0))
+            Texture::Flat(Color::srgb(1.0, 1.0, 1.0))
         };
 
-        Ok(Material { diffuse, emit, base_dissolve, dissolve })
+        Ok(Material {
+            diffuse,
+            emit,
+            base_dissolve,
+            dissolve,
+        })
     }
 
     pub fn radiance<R>(
         &self,
         ray: Ray,
+        wavelength: f32,
         intersection: Intersection,
         triangle: &Triangle,
         scene: &Scene,
         rng: &mut R,
         depth: usize,
-    ) -> Color
+    ) -> f32
     where
         R: Rng + ?Sized,
     {
@@ -109,17 +136,18 @@ impl Material {
             (intersection.u, intersection.v)
         };
 
-        if rng.gen::<f32>() >= self.base_dissolve * self.dissolve.sample(u, v).y() {
+        if rng.gen::<f32>() >= self.base_dissolve * Color::<XYZ>::from(self.dissolve.sample(u, v)).y() {
             let p = ray.origin + ray.direction * intersection.distance;
-            return scene.radiance(Ray::new(p, ray.direction), rng, Some(triangle), depth + 1);
+            return scene.radiance(Ray::new(p, ray.direction), wavelength, rng, Some(triangle), depth + 1);
         }
 
-        let diffuse = self.diffuse.sample(u, v);
-        let emit = self.emit.sample(u, v);
+        let diffuse = self.diffuse.sample(u, v).reflectance_at(wavelength);
+        // FIXME: sRGB => spectrum for emissive textures
+        let emit = D65.sample(wavelength) * self.emit.sample(u, v).reflectance_at(wavelength);
 
         let diffuse = if depth > 5 {
-            if rng.gen::<f32>() < diffuse.y() {
-                diffuse * (1.0 / diffuse.y())
+            if rng.gen::<f32>() < diffuse {
+                1.0
             } else {
                 return emit;
             }
@@ -162,7 +190,7 @@ impl Material {
 
         let p = ray.origin + ray.direction * intersection.distance;
 
-        let incoming = scene.radiance(Ray::new(p, d), rng, Some(triangle), depth + 1);
+        let incoming = scene.radiance(Ray::new(p, d), wavelength, rng, Some(triangle), depth + 1);
 
         diffuse * incoming + emit
     }
@@ -171,10 +199,10 @@ impl Material {
 impl Default for Material {
     fn default() -> Self {
         Self {
-            diffuse: Texture::Flat(Color::new(0.0, 0.75, 0.0)),
-            emit: Texture::Flat(Color::new(0.0, 0.0, 0.0)),
+            diffuse: Texture::Flat(Color::srgb(0.75, 0.75, 0.75)),
+            emit: Texture::Flat(Color::srgb(0.0, 0.0, 0.0)),
             base_dissolve: 1.0,
-            dissolve: Texture::Flat(Color::new(0.0, 1.0, 0.0)),
+            dissolve: Texture::Flat(Color::srgb(1.0, 1.0, 1.0)),
         }
     }
 }

@@ -1,5 +1,4 @@
-use crate::color::Color;
-use crate::material::Material;
+use crate::material::{Material, D65};
 use crate::triangle::{Intersection, Triangle};
 use anyhow::{Context, Error};
 use bvh::bvh::BVH;
@@ -232,15 +231,16 @@ impl Scene {
     pub fn radiance<R>(
         &self,
         ray: Ray,
+        wavelength: f32,
         rng: &mut R,
         start: Option<&Triangle>,
         depth: usize,
-    ) -> Color
+    ) -> f32
     where
         R: Rng + ?Sized,
     {
         if depth > 128 {
-            return Color::new(0.0, 0.0, 0.0);
+            return 0.0;
         }
 
         let mut intersection = None::<(Intersection, &Triangle)>;
@@ -269,6 +269,7 @@ impl Scene {
         if let Some((intersection, triangle)) = intersection {
             self.materials[triangle.material_index()].radiance(
                 ray,
+                wavelength,
                 intersection,
                 triangle,
                 self,
@@ -277,9 +278,7 @@ impl Scene {
             )
         } else {
             // TODO: sky
-            Color::from_linear_srgb(15.0, 15.0, 18.0)
-            // Color::new(0.0, 0.0, 0.0)
-            // Color::new(1.0, 1.0, 1.0)
+            D65.sample(wavelength) * 15.0
         }
     }
 }
