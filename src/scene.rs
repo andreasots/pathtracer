@@ -2,7 +2,7 @@ use crate::material::{Material, D65};
 use crate::triangle::{Intersection, Triangle};
 use anyhow::{Context, Error};
 use bvh::bvh::BVH;
-use bvh::nalgebra::{Matrix4, Point2, Point3, Vector3};
+use bvh::nalgebra::{Matrix4, Point2, Point3, Vector3, Vector4};
 use bvh::ray::Ray;
 use obj::{IndexTuple, Obj, ObjMaterial};
 use rand::Rng;
@@ -245,12 +245,12 @@ impl Scene {
         rng: &mut R,
         start: Option<&Triangle>,
         depth: usize,
-    ) -> [f32; 4]
+    ) -> Vector4<f32>
     where
         R: Rng + ?Sized,
     {
-        if depth > 128 {
-            return [0.0; 4];
+        if depth > 16 {
+            return Vector4::from_element(0.0);
         }
 
         let mut intersection = None::<(Intersection, &Triangle)>;
@@ -287,12 +287,7 @@ impl Scene {
                 depth,
             )
         } else {
-            [
-                D65.sample(wavelengths[0]) * self.sky.power,
-                D65.sample(wavelengths[1]) * self.sky.power,
-                D65.sample(wavelengths[2]) * self.sky.power,
-                D65.sample(wavelengths[3]) * self.sky.power,
-            ]
+            D65.sample4(wavelengths) * self.sky.power
         }
     }
 }

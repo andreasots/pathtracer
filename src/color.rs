@@ -1,4 +1,4 @@
-use bvh::nalgebra::{Matrix3, Vector3};
+use bvh::nalgebra::{Matrix3, Vector3, Vector4};
 use image::{Primitive, Rgba};
 use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Mul};
@@ -48,9 +48,19 @@ impl Color<SRGB> {
         let alpha = offset - index;
         let index = index as usize;
 
-        let base_reflectance = Vector3::from(TABLE[index]).lerp(&Vector3::from(TABLE[index + 1]), alpha);
+        let base_reflectance =
+            Vector3::from(TABLE[index]).lerp(&Vector3::from(TABLE[index + 1]), alpha);
 
         self.0.dot(&base_reflectance)
+    }
+
+    pub fn reflectance_at4(&self, wavelengths: [f32; 4]) -> Vector4<f32> {
+        Vector4::new(
+            self.reflectance_at(wavelengths[0]),
+            self.reflectance_at(wavelengths[1]),
+            self.reflectance_at(wavelengths[2]),
+            self.reflectance_at(wavelengths[3]),
+        )
     }
 }
 
@@ -179,8 +189,8 @@ impl<S> Mul<Color<S>> for f32 {
 
 #[cfg(test)]
 mod test {
+    use super::{Color, FUDGE_FACTOR, XYZ};
     use crate::material::D65;
-    use super::{Color, XYZ, FUDGE_FACTOR};
     use approx::assert_abs_diff_eq;
 
     const COLOR_EPS: f32 = 0.0001;
@@ -233,6 +243,10 @@ mod test {
             n += 1.0;
         }
 
-        assert_abs_diff_eq!(total.y() * (1.0 / n) * FUDGE_FACTOR, 1.0, epsilon = COLOR_EPS);
+        assert_abs_diff_eq!(
+            total.y() * (1.0 / n) * FUDGE_FACTOR,
+            1.0,
+            epsilon = COLOR_EPS
+        );
     }
 }

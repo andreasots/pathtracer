@@ -1,13 +1,14 @@
 use crate::color::{Color, SRGB, XYZ};
+use crate::distributions::CosineWeightedHemisphere;
 use crate::scene::Scene;
 use crate::triangle::{Intersection, Triangle};
 use anyhow::{Context, Error};
-use bvh::nalgebra::Vector3;
+use bvh::nalgebra::{Vector3, Vector4};
 use bvh::ray::Ray;
 use image::{DynamicImage, GenericImageView};
 use rand::Rng;
-use std::path::Path;
 use std::ops::{Add, Index, Mul};
+use std::path::Path;
 
 pub struct Image<P> {
     width: u32,
@@ -81,7 +82,10 @@ pub enum Texture<P> {
     Flat(P),
 }
 
-impl<P> Texture<P> where P: Copy + Add<Output=P> + Mul<f32, Output=P> {
+impl<P> Texture<P>
+where
+    P: Copy + Add<Output = P> + Mul<f32, Output = P>,
+{
     pub fn sample(&self, u: f32, v: f32) -> P {
         match self {
             Texture::Texture(tex) => {
@@ -125,11 +129,132 @@ impl D65 {
 
         (TABLE[index].1 * (1.0 - alpha) + TABLE[index + 1].1 * alpha) / 100.0
     }
+
+    pub fn sample4(&self, wavelengths: [f32; 4]) -> Vector4<f32> {
+        Vector4::new(
+            self.sample(wavelengths[0]),
+            self.sample(wavelengths[1]),
+            self.sample(wavelengths[2]),
+            self.sample(wavelengths[3]),
+        )
+    }
+}
+
+pub trait Bsdf {
+    /// returns new ray direction and the sample contribution `BSDF(d) / pdf(d)`
+    fn sample<R>(
+        &self,
+        u: f32,
+        v: f32,
+        wavelengths: [f32; 4],
+        use_russian_roulette: bool,
+        rng: &mut R,
+    ) -> Option<(Vector3<f32>, Vector4<f32>)>
+    where
+        R: Rng + ?Sized;
+}
+
+pub struct Lambert {
+    reflectance: Texture<Color<SRGB>>,
+}
+
+impl Bsdf for Lambert {
+    fn sample<R>(
+        &self,
+        u: f32,
+        v: f32,
+        wavelengths: [f32; 4],
+        use_russian_roulette: bool,
+        rng: &mut R,
+    ) -> Option<(Vector3<f32>, Vector4<f32>)>
+    where
+        R: Rng + ?Sized,
+    {
+        let reflectance = self.reflectance.sample(u, v).reflectance_at4(wavelengths);
+        let (_, max) = if use_russian_roulette {
+            reflectance.argmax()
+        } else {
+            (0, 1.0)
+        };
+        if rng.gen::<f32>() < max {
+            // The normalization factor is 1/pi and the PDF of the sampler is also 1/pi so they cancel out.
+            Some((
+                rng.sample(CosineWeightedHemisphere),
+                reflectance * (1.0 / max),
+            ))
+        } else {
+            None
+        }
+    }
+}
+
+pub struct Mix<A, B> {
+    a: A,
+    a_weight: f32,
+    b: B,
+}
+
+impl<A, B> Bsdf for Mix<A, B>
+where
+    A: Bsdf,
+    B: Bsdf,
+{
+    fn sample<R>(
+        &self,
+        u: f32,
+        v: f32,
+        wavelengths: [f32; 4],
+        use_russian_roulette: bool,
+        rng: &mut R,
+    ) -> Option<(Vector3<f32>, Vector4<f32>)>
+    where
+        R: Rng + ?Sized,
+    {
+        if rng.gen::<f32>() < self.a_weight {
+            self.a.sample(u, v, wavelengths, use_russian_roulette, rng)
+        } else {
+            self.b.sample(u, v, wavelengths, use_russian_roulette, rng)
+        }
+    }
+}
+
+pub struct Null;
+
+impl Bsdf for Null {
+    fn sample<R>(
+        &self,
+        _u: f32,
+        _v: f32,
+        _wavelengths: [f32; 4],
+        _use_russian_roulette: bool,
+        _rng: &mut R,
+    ) -> Option<(Vector3<f32>, Vector4<f32>)>
+    where
+        R: Rng + ?Sized,
+    {
+        None
+    }
+}
+
+pub enum Emit {
+    AbsorbedD65 { absorption: Texture<Color<SRGB>> },
+    Null,
+}
+
+impl Emit {
+    fn sample(&self, u: f32, v: f32, wavelengths: [f32; 4]) -> Vector4<f32> {
+        match self {
+            Self::AbsorbedD65 { absorption } => D65
+                .sample4(wavelengths)
+                .component_mul(&absorption.sample(u, v).reflectance_at4(wavelengths)),
+            Self::Null => Vector4::from_element(0.0),
+        }
+    }
 }
 
 pub struct Material {
-    pub diffuse: Texture<Color<SRGB>>,
-    pub emit: Texture<Color<SRGB>>,
+    pub bsdf: Lambert,
+    pub emit: Emit,
     pub base_dissolve: f32,
     pub dissolve: Texture<f32>,
 }
@@ -151,11 +276,15 @@ impl Material {
         let emit = if let Some(ref path) = mtl.map_ke {
             let tex = image::open(mtl_path.with_file_name(path))
                 .with_context(|| format!("failed to load emissive texture {:?}", path))?;
-            Texture::Texture(tex.into())
+            Emit::AbsorbedD65 {
+                absorption: Texture::Texture(tex.into()),
+            }
         } else if let Some(color) = mtl.ke {
-            Texture::Flat(Color::srgb(color[0], color[1], color[2]))
+            Emit::AbsorbedD65 {
+                absorption: Texture::Flat(Color::srgb(color[0], color[1], color[2])),
+            }
         } else {
-            Texture::Flat(Color::srgb(0.0, 0.0, 0.0))
+            Emit::Null
         };
 
         let base_dissolve = mtl.d.unwrap_or(1.0);
@@ -169,7 +298,9 @@ impl Material {
         };
 
         Ok(Material {
-            diffuse,
+            bsdf: Lambert {
+                reflectance: diffuse,
+            },
             emit,
             base_dissolve,
             dissolve,
@@ -185,7 +316,7 @@ impl Material {
         scene: &Scene,
         rng: &mut R,
         depth: usize,
-    ) -> [f32; 4]
+    ) -> Vector4<f32>
     where
         R: Rng + ?Sized,
     {
@@ -200,97 +331,64 @@ impl Material {
 
         if rng.gen::<f32>() >= self.base_dissolve * self.dissolve.sample(u, v) {
             let p = ray.origin + ray.direction * intersection.distance;
-            return scene.radiance(Ray::new(p, ray.direction), wavelengths, rng, Some(triangle), depth + 1);
+            return scene.radiance(
+                Ray::new(p, ray.direction),
+                wavelengths,
+                rng,
+                Some(triangle),
+                depth + 1,
+            );
         }
 
-        let diffuse = self.diffuse.sample(u, v);
-        let diffuse = [
-            diffuse.reflectance_at(wavelengths[0]),
-            diffuse.reflectance_at(wavelengths[1]),
-            diffuse.reflectance_at(wavelengths[2]),
-            diffuse.reflectance_at(wavelengths[3]),
-        ];
-        // FIXME: sRGB => spectrum for emissive textures
-        let emit = self.emit.sample(u, v);
-        let emit = [
-            D65.sample(wavelengths[0]) * emit.reflectance_at(wavelengths[0]),
-            D65.sample(wavelengths[1]) * emit.reflectance_at(wavelengths[1]),
-            D65.sample(wavelengths[2]) * emit.reflectance_at(wavelengths[2]),
-            D65.sample(wavelengths[3]) * emit.reflectance_at(wavelengths[3]),
-        ];
+        let emit = self.emit.sample(u, v, wavelengths);
 
-        let diffuse = if depth > 5 {
-            let max = diffuse[0].max(diffuse[1]).max(diffuse[2]).max(diffuse[3]);
-            if rng.gen::<f32>() < max {
-                let inv_max = 1.0 / max;
-                [
-                    diffuse[0] * inv_max,
-                    diffuse[1] * inv_max,
-                    diffuse[2] * inv_max,
-                    diffuse[3] * inv_max,
-                ]
+        if let Some((d, weight)) = self.bsdf.sample(u, v, wavelengths, depth > 2, rng) {
+            let normal = if let Some(normals) = triangle.vertex_normals() {
+                (1.0 - intersection.u - intersection.v) * normals[0]
+                    + intersection.u * normals[1]
+                    + intersection.v * normals[2]
             } else {
-                return emit;
-            }
+                intersection.normal
+            };
+
+            // `ray.direction` is facing *into* the surface and `normal` should *out of* the surface.
+            let normal = if normal.dot(&ray.direction) < 0.0 {
+                normal
+            } else {
+                -normal
+            };
+
+            let normal = normal.normalize();
+            // TODO: calculate `(u, v)` from the texture mapping.
+            let v = if normal.x.abs() > 0.1 {
+                Vector3::new(0.0, 1.0, 0.0)
+            } else {
+                Vector3::new(1.0, 0.0, 0.0)
+            };
+            let u = v.cross(&normal).normalize();
+            let v = normal.cross(&u);
+
+            let d = u * d.x + v * d.y + normal * d.z;
+
+            let p = ray.origin + ray.direction * intersection.distance;
+
+            let incoming =
+                scene.radiance(Ray::new(p, d), wavelengths, rng, Some(triangle), depth + 1);
+
+            incoming.component_mul(&weight) + emit
         } else {
-            diffuse
-        };
-
-        let normal = if let Some(normals) = triangle.vertex_normals() {
-            (1.0 - intersection.u - intersection.v) * normals[0]
-                + intersection.u * normals[1]
-                + intersection.v * normals[2]
-        } else {
-            intersection.normal
-        };
-
-        // `ray.direction` is facing *into* the surface and `normal` should *out of* the surface.
-        let normal = if normal.dot(&ray.direction) < 0.0 {
-            normal
-        } else {
-            -normal
-        };
-
-        let normal = normal.normalize();
-        // TODO: calculate `(u, v)` from the texture mapping.
-        let v = if normal.x.abs() > 0.1 {
-            Vector3::new(0.0, 1.0, 0.0)
-        } else {
-            Vector3::new(1.0, 0.0, 0.0)
-        };
-        let u = v.cross(&normal).normalize();
-        let v = normal.cross(&u);
-
-        let r1 = 2.0 * std::f32::consts::PI * rng.gen::<f32>();
-        let r2 = rng.gen::<f32>();
-        let r2s = r2.sqrt();
-
-        let (sin_r1, cos_r1) = r1.sin_cos();
-
-        let d = u * cos_r1 * r2s + v * sin_r1 * r2s + normal * (1.0 - r2).sqrt();
-
-        let p = ray.origin + ray.direction * intersection.distance;
-
-        let incoming = scene.radiance(Ray::new(p, d), wavelengths, rng, Some(triangle), depth + 1);
-
-        [
-            incoming[0] * Self::shader(diffuse[0]) * std::f32::consts::PI + emit[0],
-            incoming[1] * Self::shader(diffuse[1]) * std::f32::consts::PI + emit[1],
-            incoming[2] * Self::shader(diffuse[2]) * std::f32::consts::PI + emit[2],
-            incoming[3] * Self::shader(diffuse[3]) * std::f32::consts::PI + emit[3],
-        ]
-    }
-
-    fn shader(reflectance: f32) -> f32 {
-        reflectance * std::f32::consts::FRAC_1_PI
+            emit
+        }
     }
 }
 
 impl Default for Material {
     fn default() -> Self {
         Self {
-            diffuse: Texture::Flat(Color::srgb(0.75, 0.75, 0.75)),
-            emit: Texture::Flat(Color::srgb(0.0, 0.0, 0.0)),
+            bsdf: Lambert {
+                reflectance: Texture::Flat(Color::srgb(0.75, 0.75, 0.75)),
+            },
+            emit: Emit::Null,
             base_dissolve: 1.0,
             dissolve: Texture::Flat(1.0),
         }
