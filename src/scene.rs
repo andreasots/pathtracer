@@ -68,7 +68,15 @@ impl ObjExt for Obj {
 struct SceneFile {
     #[serde(default)]
     camera: Camera,
+    #[serde(default)]
+    sky: Sky,
     meshes: Vec<Mesh>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Default)]
+#[serde(default)]
+struct Sky {
+    power: f32,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -135,6 +143,7 @@ pub struct Scene {
     bvh: BVH,
     triangles: Vec<Triangle>,
     materials: Vec<Material>,
+    sky: Sky,
 }
 
 impl Scene {
@@ -225,22 +234,23 @@ impl Scene {
             bvh,
             triangles,
             materials,
+            sky: scene.sky,
         })
     }
 
     pub fn radiance<R>(
         &self,
         ray: Ray,
-        wavelength: f32,
+        wavelengths: [f32; 4],
         rng: &mut R,
         start: Option<&Triangle>,
         depth: usize,
-    ) -> f32
+    ) -> [f32; 4]
     where
         R: Rng + ?Sized,
     {
         if depth > 128 {
-            return 0.0;
+            return [0.0; 4];
         }
 
         let mut intersection = None::<(Intersection, &Triangle)>;
@@ -269,7 +279,7 @@ impl Scene {
         if let Some((intersection, triangle)) = intersection {
             self.materials[triangle.material_index()].radiance(
                 ray,
-                wavelength,
+                wavelengths,
                 intersection,
                 triangle,
                 self,
@@ -277,8 +287,12 @@ impl Scene {
                 depth,
             )
         } else {
-            // TODO: sky
-            D65.sample(wavelength) * 15.0
+            [
+                D65.sample(wavelengths[0]) * self.sky.power,
+                D65.sample(wavelengths[1]) * self.sky.power,
+                D65.sample(wavelengths[2]) * self.sky.power,
+                D65.sample(wavelengths[3]) * self.sky.power,
+            ]
         }
     }
 }

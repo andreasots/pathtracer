@@ -19,6 +19,9 @@ mod material;
 mod scene;
 mod triangle;
 
+const MIN_WAVELENGTH: f32 = 360e-9;
+const MAX_WAVELENGTH: f32 = 830e-9;
+
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 struct Vertex {
@@ -272,7 +275,7 @@ async fn renderer(
                         resolve_target: None,
                         load_op: wgpu::LoadOp::Clear,
                         store_op: wgpu::StoreOp::Store,
-                        clear_color: wgpu::Color::RED,
+                        clear_color: wgpu::Color::BLACK,
                     }],
                     depth_stencil_attachment: None,
                 });
@@ -309,7 +312,7 @@ fn main() -> Result<(), Error> {
 
     let mut buffer = Vec::with_capacity(4 * width * height);
     let uninitialized_buffer_color = loop {
-        let wavelength = rand::thread_rng().sample(Uniform::new(360e-9, 830e-9));
+        let wavelength = rand::thread_rng().sample(Uniform::new(MIN_WAVELENGTH, MAX_WAVELENGTH));
         let color = Color::from_wavelength(wavelength);
         if color.y() > 0.1 {
             break color;
@@ -350,15 +353,26 @@ fn main() -> Result<(), Error> {
                     let mut accumulator = Color::xyz(0.0, 0.0, 0.0);
 
                     for _ in 0..samples {
-                        let wavelength = rng.sample(Uniform::new(360e-9, 830e-9));
                         let x = x as f32 + rng.sample::<f32, _>(StandardNormal) * 0.5;
                         let y = y as f32 + rng.sample::<f32, _>(StandardNormal) * 0.5;
 
                         let ray = camera.generate_ray(x, y);
 
-                        let radiance = scene.radiance(ray, wavelength, &mut rng, None, 0);
+                        let wavelength_width = MAX_WAVELENGTH - MIN_WAVELENGTH;
+                        let hero_wavelength = rng.sample(Uniform::new(0.0, wavelength_width));
+                        let wavelengths = [
+                            MIN_WAVELENGTH + hero_wavelength,
+                            MIN_WAVELENGTH + (hero_wavelength + wavelength_width * 0.25).rem_euclid(wavelength_width),
+                            MIN_WAVELENGTH + (hero_wavelength + wavelength_width * 0.50).rem_euclid(wavelength_width),
+                            MIN_WAVELENGTH + (hero_wavelength + wavelength_width * 0.75).rem_euclid(wavelength_width),
+                        ];
 
-                        accumulator += Color::from_wavelength(wavelength) * radiance * FUDGE_FACTOR;
+                        let radiance = scene.radiance(ray, wavelengths, &mut rng, None, 0);
+
+                        accumulator += Color::from_wavelength(wavelengths[0]) * radiance[0] * FUDGE_FACTOR * 0.25;
+                        accumulator += Color::from_wavelength(wavelengths[1]) * radiance[1] * FUDGE_FACTOR * 0.25;
+                        accumulator += Color::from_wavelength(wavelengths[2]) * radiance[2] * FUDGE_FACTOR * 0.25;
+                        accumulator += Color::from_wavelength(wavelengths[3]) * radiance[3] * FUDGE_FACTOR * 0.25;
                     }
 
                     let color = accumulator * (1.0 / (samples as f32));

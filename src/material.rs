@@ -7,14 +7,82 @@ use bvh::ray::Ray;
 use image::{DynamicImage, GenericImageView};
 use rand::Rng;
 use std::path::Path;
+use std::ops::{Add, Index, Mul};
 
-pub enum Texture {
-    Texture(DynamicImage),
-    Flat(Color<SRGB>),
+pub struct Image<P> {
+    width: u32,
+    height: u32,
+    data: Vec<P>,
 }
 
-impl Texture {
-    pub fn sample(&self, u: f32, v: f32) -> Color<SRGB> {
+impl<P> Image<P> {
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+}
+
+impl<P> Index<(u32, u32)> for Image<P> {
+    type Output = P;
+
+    fn index(&self, (x, y): (u32, u32)) -> &Self::Output {
+        assert!(x < self.width);
+        assert!(y < self.height);
+
+        &self.data[x as usize + y as usize * self.width as usize]
+    }
+}
+
+impl From<DynamicImage> for Image<Color<SRGB>> {
+    fn from(img: DynamicImage) -> Self {
+        let width = img.width();
+        let height = img.height();
+
+        let mut data = Vec::with_capacity(width as usize * height as usize);
+        for y in 0..height {
+            for x in 0..width {
+                data.push(img.get_pixel(x, y).into())
+            }
+        }
+
+        Image {
+            width,
+            height,
+            data,
+        }
+    }
+}
+
+impl From<DynamicImage> for Image<f32> {
+    fn from(img: DynamicImage) -> Self {
+        let width = img.width();
+        let height = img.height();
+
+        let mut data = Vec::with_capacity(width as usize * height as usize);
+        for y in 0..height {
+            for x in 0..width {
+                data.push(Color::<XYZ>::from(Color::<SRGB>::from(img.get_pixel(x, y))).y());
+            }
+        }
+
+        Image {
+            width,
+            height,
+            data,
+        }
+    }
+}
+
+pub enum Texture<P> {
+    Texture(Image<P>),
+    Flat(P),
+}
+
+impl<P> Texture<P> where P: Copy + Add<Output=P> + Mul<f32, Output=P> {
+    pub fn sample(&self, u: f32, v: f32) -> P {
         match self {
             Texture::Texture(tex) => {
                 let w = tex.width();
@@ -29,16 +97,10 @@ impl Texture {
                 let t_x = x - x.floor();
                 let t_y = y - y.floor();
 
-                let p00: Color<SRGB> = tex.get_pixel(x0.rem_euclid(w), y0.rem_euclid(h)).into();
-                let p10: Color<SRGB> = tex
-                    .get_pixel((x0 + 1).rem_euclid(w), y0.rem_euclid(h))
-                    .into();
-                let p01: Color<SRGB> = tex
-                    .get_pixel(x0.rem_euclid(w), (y0 + 1).rem_euclid(h))
-                    .into();
-                let p11: Color<SRGB> = tex
-                    .get_pixel((x0 + 1).rem_euclid(w), (y0 + 1).rem_euclid(h))
-                    .into();
+                let p00 = tex[(x0.rem_euclid(w), y0.rem_euclid(h))];
+                let p10 = tex[((x0 + 1).rem_euclid(w), y0.rem_euclid(h))];
+                let p01 = tex[(x0.rem_euclid(w), (y0 + 1).rem_euclid(h))];
+                let p11 = tex[((x0 + 1).rem_euclid(w), (y0 + 1).rem_euclid(h))];
 
                 let p0 = p00 * (1.0 - t_x) + p10 * t_x;
                 let p1 = p01 * (1.0 - t_x) + p11 * t_x;
@@ -66,10 +128,10 @@ impl D65 {
 }
 
 pub struct Material {
-    pub diffuse: Texture,
-    pub emit: Texture,
+    pub diffuse: Texture<Color<SRGB>>,
+    pub emit: Texture<Color<SRGB>>,
     pub base_dissolve: f32,
-    pub dissolve: Texture,
+    pub dissolve: Texture<f32>,
 }
 
 impl Material {
@@ -79,7 +141,7 @@ impl Material {
         let diffuse = if let Some(ref path) = mtl.map_kd {
             let tex = image::open(mtl_path.with_file_name(path))
                 .with_context(|| format!("failed to load diffuse texture {:?}", path))?;
-            Texture::Texture(tex)
+            Texture::Texture(tex.into())
         } else if let Some(color) = mtl.kd {
             Texture::Flat(Color::srgb(color[0], color[1], color[2]))
         } else {
@@ -89,7 +151,7 @@ impl Material {
         let emit = if let Some(ref path) = mtl.map_ke {
             let tex = image::open(mtl_path.with_file_name(path))
                 .with_context(|| format!("failed to load emissive texture {:?}", path))?;
-            Texture::Texture(tex)
+            Texture::Texture(tex.into())
         } else if let Some(color) = mtl.ke {
             Texture::Flat(Color::srgb(color[0], color[1], color[2]))
         } else {
@@ -101,9 +163,9 @@ impl Material {
         let dissolve = if let Some(ref path) = mtl.map_d {
             let tex = image::open(mtl_path.with_file_name(path))
                 .with_context(|| format!("failed to load dissolve texture {:?}", path))?;
-            Texture::Texture(tex)
+            Texture::Texture(tex.into())
         } else {
-            Texture::Flat(Color::srgb(1.0, 1.0, 1.0))
+            Texture::Flat(1.0)
         };
 
         Ok(Material {
@@ -117,13 +179,13 @@ impl Material {
     pub fn radiance<R>(
         &self,
         ray: Ray,
-        wavelength: f32,
+        wavelengths: [f32; 4],
         intersection: Intersection,
         triangle: &Triangle,
         scene: &Scene,
         rng: &mut R,
         depth: usize,
-    ) -> f32
+    ) -> [f32; 4]
     where
         R: Rng + ?Sized,
     {
@@ -136,18 +198,37 @@ impl Material {
             (intersection.u, intersection.v)
         };
 
-        if rng.gen::<f32>() >= self.base_dissolve * Color::<XYZ>::from(self.dissolve.sample(u, v)).y() {
+        if rng.gen::<f32>() >= self.base_dissolve * self.dissolve.sample(u, v) {
             let p = ray.origin + ray.direction * intersection.distance;
-            return scene.radiance(Ray::new(p, ray.direction), wavelength, rng, Some(triangle), depth + 1);
+            return scene.radiance(Ray::new(p, ray.direction), wavelengths, rng, Some(triangle), depth + 1);
         }
 
-        let diffuse = self.diffuse.sample(u, v).reflectance_at(wavelength);
+        let diffuse = self.diffuse.sample(u, v);
+        let diffuse = [
+            diffuse.reflectance_at(wavelengths[0]),
+            diffuse.reflectance_at(wavelengths[1]),
+            diffuse.reflectance_at(wavelengths[2]),
+            diffuse.reflectance_at(wavelengths[3]),
+        ];
         // FIXME: sRGB => spectrum for emissive textures
-        let emit = D65.sample(wavelength) * self.emit.sample(u, v).reflectance_at(wavelength);
+        let emit = self.emit.sample(u, v);
+        let emit = [
+            D65.sample(wavelengths[0]) * emit.reflectance_at(wavelengths[0]),
+            D65.sample(wavelengths[1]) * emit.reflectance_at(wavelengths[1]),
+            D65.sample(wavelengths[2]) * emit.reflectance_at(wavelengths[2]),
+            D65.sample(wavelengths[3]) * emit.reflectance_at(wavelengths[3]),
+        ];
 
         let diffuse = if depth > 5 {
-            if rng.gen::<f32>() < diffuse {
-                1.0
+            let max = diffuse[0].max(diffuse[1]).max(diffuse[2]).max(diffuse[3]);
+            if rng.gen::<f32>() < max {
+                let inv_max = 1.0 / max;
+                [
+                    diffuse[0] * inv_max,
+                    diffuse[1] * inv_max,
+                    diffuse[2] * inv_max,
+                    diffuse[3] * inv_max,
+                ]
             } else {
                 return emit;
             }
@@ -171,13 +252,7 @@ impl Material {
         };
 
         let normal = normal.normalize();
-
-        let r1 = 2.0 * std::f32::consts::PI * rng.gen::<f32>();
-        let r2 = rng.gen::<f32>();
-        let r2s = r2.sqrt();
-
-        let (sin_r1, cos_r1) = r1.sin_cos();
-
+        // TODO: calculate `(u, v)` from the texture mapping.
         let v = if normal.x.abs() > 0.1 {
             Vector3::new(0.0, 1.0, 0.0)
         } else {
@@ -186,13 +261,28 @@ impl Material {
         let u = v.cross(&normal).normalize();
         let v = normal.cross(&u);
 
+        let r1 = 2.0 * std::f32::consts::PI * rng.gen::<f32>();
+        let r2 = rng.gen::<f32>();
+        let r2s = r2.sqrt();
+
+        let (sin_r1, cos_r1) = r1.sin_cos();
+
         let d = u * cos_r1 * r2s + v * sin_r1 * r2s + normal * (1.0 - r2).sqrt();
 
         let p = ray.origin + ray.direction * intersection.distance;
 
-        let incoming = scene.radiance(Ray::new(p, d), wavelength, rng, Some(triangle), depth + 1);
+        let incoming = scene.radiance(Ray::new(p, d), wavelengths, rng, Some(triangle), depth + 1);
 
-        diffuse * incoming + emit
+        [
+            incoming[0] * Self::shader(diffuse[0]) * std::f32::consts::PI + emit[0],
+            incoming[1] * Self::shader(diffuse[1]) * std::f32::consts::PI + emit[1],
+            incoming[2] * Self::shader(diffuse[2]) * std::f32::consts::PI + emit[2],
+            incoming[3] * Self::shader(diffuse[3]) * std::f32::consts::PI + emit[3],
+        ]
+    }
+
+    fn shader(reflectance: f32) -> f32 {
+        reflectance * std::f32::consts::FRAC_1_PI
     }
 }
 
@@ -202,7 +292,7 @@ impl Default for Material {
             diffuse: Texture::Flat(Color::srgb(0.75, 0.75, 0.75)),
             emit: Texture::Flat(Color::srgb(0.0, 0.0, 0.0)),
             base_dissolve: 1.0,
-            dissolve: Texture::Flat(Color::srgb(1.0, 1.0, 1.0)),
+            dissolve: Texture::Flat(1.0),
         }
     }
 }
