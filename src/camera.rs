@@ -29,6 +29,16 @@ impl Camera {
     }
 }
 
+impl From<crate::scene::Camera> for Camera {
+    fn from(camera: crate::scene::Camera) -> Self {
+        Self::new(
+            (camera.resolution.0 as f32, camera.resolution.1 as f32),
+            camera.sensor_width,
+            camera.focal_length,
+        )
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::Camera;

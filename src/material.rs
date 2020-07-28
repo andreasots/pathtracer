@@ -261,39 +261,50 @@ pub struct Material {
 
 impl Material {
     pub fn from_mtl<P: AsRef<Path>>(mtl_path: P, mtl: &obj::Material) -> Result<Material, Error> {
+        println!("Material {}:", mtl.name);
+
         let mtl_path = mtl_path.as_ref();
 
         let diffuse = if let Some(ref path) = mtl.map_kd {
+            println!("\tdiffuse: {}", path);
             let tex = image::open(mtl_path.with_file_name(path))
                 .with_context(|| format!("failed to load diffuse texture {:?}", path))?;
             Texture::Texture(tex.into())
         } else if let Some(color) = mtl.kd {
+            println!("\tdiffuse: {:?}", color);
             Texture::Flat(Color::srgb(color[0], color[1], color[2]))
         } else {
+            println!("\tdiffuse: default 75% gray");
             Texture::Flat(Color::srgb(0.75, 0.75, 0.75))
         };
 
         let emit = if let Some(ref path) = mtl.map_ke {
+            println!("\temit: {}", path);
             let tex = image::open(mtl_path.with_file_name(path))
                 .with_context(|| format!("failed to load emissive texture {:?}", path))?;
             Emit::AbsorbedD65 {
                 absorption: Texture::Texture(tex.into()),
             }
         } else if let Some(color) = mtl.ke {
+            println!("\temit: {:?}", color);
             Emit::AbsorbedD65 {
                 absorption: Texture::Flat(Color::srgb(color[0], color[1], color[2])),
             }
         } else {
+            println!("\temit: nothing");
             Emit::Null
         };
 
         let base_dissolve = mtl.d.unwrap_or(1.0);
+        println!("\tbase dissolve: {}", base_dissolve);
 
         let dissolve = if let Some(ref path) = mtl.map_d {
+            println!("\tdissolve: {}", path);
             let tex = image::open(mtl_path.with_file_name(path))
                 .with_context(|| format!("failed to load dissolve texture {:?}", path))?;
             Texture::Texture(tex.into())
         } else {
+            println!("\tdissolve: no");
             Texture::Flat(1.0)
         };
 

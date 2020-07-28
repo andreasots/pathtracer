@@ -19,6 +19,8 @@ mod triangle;
 const MIN_WAVELENGTH: f32 = 360e-9;
 const MAX_WAVELENGTH: f32 = 830e-9;
 
+const TILE_SIZE: usize = 32;
+
 fn main() -> Result<(), Error> {
     let scene_file_name = std::env::args_os()
         .skip(1)
@@ -50,71 +52,73 @@ fn main() -> Result<(), Error> {
         let buffer = buffer.clone();
         let done = done.clone();
         rayon::spawn(move || {
-            let camera = Camera::new(
-                (
-                    scene.camera.resolution.0 as f32,
-                    scene.camera.resolution.1 as f32,
-                ),
-                scene.camera.sensor_width,
-                scene.camera.focal_length,
-            );
+            let camera = Camera::from(scene.camera);
             let samples = scene.camera.samples;
 
             let start = std::time::Instant::now();
 
             (0..height)
                 .into_par_iter()
+                .step_by(TILE_SIZE)
                 .flat_map(|y| (0..width).into_par_iter().map(move |x| (x, y)))
                 .for_each(|(x, y)| {
                     let mut rng = rand::thread_rng();
-                    let mut accumulator = Color::xyz(0.0, 0.0, 0.0);
 
-                    for _ in 0..samples {
-                        let x = x as f32 + rng.sample::<f32, _>(StandardNormal) * 0.5;
-                        let y = y as f32 + rng.sample::<f32, _>(StandardNormal) * 0.5;
+                    let tile_height = std::cmp::min(height - y, TILE_SIZE);
 
-                        let ray = camera.generate_ray(x, y);
+                    for y in y..y + tile_height {
+                        let mut accumulator = Color::xyz(0.0, 0.0, 0.0);
 
-                        let wavelength_width = MAX_WAVELENGTH - MIN_WAVELENGTH;
-                        let hero_wavelength = rng.sample(Uniform::new(0.0, wavelength_width));
-                        let wavelengths = [
-                            MIN_WAVELENGTH + hero_wavelength,
-                            MIN_WAVELENGTH
-                                + (hero_wavelength + wavelength_width * 0.25)
-                                    .rem_euclid(wavelength_width),
-                            MIN_WAVELENGTH
-                                + (hero_wavelength + wavelength_width * 0.50)
-                                    .rem_euclid(wavelength_width),
-                            MIN_WAVELENGTH
-                                + (hero_wavelength + wavelength_width * 0.75)
-                                    .rem_euclid(wavelength_width),
-                        ];
+                        for _ in 0..samples {
+                            let x = x as f32 + rng.sample::<f32, _>(StandardNormal) * 0.5;
+                            let y = y as f32 + rng.sample::<f32, _>(StandardNormal) * 0.5;
 
-                        let radiance = scene.radiance(ray, wavelengths, &mut rng, None, 0);
+                            let ray = camera.generate_ray(x, y);
 
-                        accumulator += Color::from_wavelength(wavelengths[0])
-                            * radiance[0]
-                            * FUDGE_FACTOR
-                            * 0.25;
-                        accumulator += Color::from_wavelength(wavelengths[1])
-                            * radiance[1]
-                            * FUDGE_FACTOR
-                            * 0.25;
-                        accumulator += Color::from_wavelength(wavelengths[2])
-                            * radiance[2]
-                            * FUDGE_FACTOR
-                            * 0.25;
-                        accumulator += Color::from_wavelength(wavelengths[3])
-                            * radiance[3]
-                            * FUDGE_FACTOR
-                            * 0.25;
+                            let wavelength_width = MAX_WAVELENGTH - MIN_WAVELENGTH;
+                            let hero_wavelength = rng.sample(Uniform::new(0.0, wavelength_width));
+                            let wavelengths = [
+                                MIN_WAVELENGTH + hero_wavelength,
+                                MIN_WAVELENGTH
+                                    + (hero_wavelength + wavelength_width * 0.25)
+                                        .rem_euclid(wavelength_width),
+                                MIN_WAVELENGTH
+                                    + (hero_wavelength + wavelength_width * 0.50)
+                                        .rem_euclid(wavelength_width),
+                                MIN_WAVELENGTH
+                                    + (hero_wavelength + wavelength_width * 0.75)
+                                        .rem_euclid(wavelength_width),
+                            ];
+
+                            let radiance = scene.radiance(ray, wavelengths, &mut rng, None, 0);
+
+                            accumulator += Color::from_wavelength(wavelengths[0])
+                                * radiance[0]
+                                * FUDGE_FACTOR
+                                * 0.25;
+                            accumulator += Color::from_wavelength(wavelengths[1])
+                                * radiance[1]
+                                * FUDGE_FACTOR
+                                * 0.25;
+                            accumulator += Color::from_wavelength(wavelengths[2])
+                                * radiance[2]
+                                * FUDGE_FACTOR
+                                * 0.25;
+                            accumulator += Color::from_wavelength(wavelengths[3])
+                                * radiance[3]
+                                * FUDGE_FACTOR
+                                * 0.25;
+                        }
+
+                        let color = accumulator * (1.0 / (samples as f32));
+
+                        buffer[4 * (x + y * width) + 0]
+                            .store(color.x().to_bits(), Ordering::Relaxed);
+                        buffer[4 * (x + y * width) + 1]
+                            .store(color.y().to_bits(), Ordering::Relaxed);
+                        buffer[4 * (x + y * width) + 2]
+                            .store(color.z().to_bits(), Ordering::Relaxed);
                     }
-
-                    let color = accumulator * (1.0 / (samples as f32));
-
-                    buffer[4 * (x + y * width) + 0].store(color.x().to_bits(), Ordering::Relaxed);
-                    buffer[4 * (x + y * width) + 1].store(color.y().to_bits(), Ordering::Relaxed);
-                    buffer[4 * (x + y * width) + 2].store(color.z().to_bits(), Ordering::Relaxed);
                 });
 
             let end = std::time::Instant::now();

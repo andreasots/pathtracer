@@ -79,7 +79,7 @@ struct Sky {
     power: f32,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone)]
 #[serde(default)]
 pub struct Camera {
     pub resolution: (usize, usize),
@@ -163,6 +163,8 @@ impl Scene {
         let camera_matrix = scene.camera.transform.into_matrix();
 
         for mesh in scene.meshes {
+            println!("Loading {:?}", mesh.path);
+
             let transform = Matrix4::from(mesh.transform) * camera_matrix;
 
             let mesh_path = path.with_file_name(&mesh.path);
@@ -225,7 +227,7 @@ impl Scene {
             }
         }
 
-        println!("{} triangles", triangles.len());
+        println!("Loaded {} triangles", triangles.len());
 
         let bvh = BVH::build(&mut triangles);
 
