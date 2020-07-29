@@ -22,6 +22,8 @@ const MAX_WAVELENGTH: f32 = 830e-9;
 const TILE_SIZE: usize = 32;
 
 fn main() -> Result<(), Error> {
+    simple_logger::init().context("failed to init logging")?;
+
     let scene_file_name = std::env::args_os()
         .skip(1)
         .next()
