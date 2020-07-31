@@ -1,5 +1,5 @@
 use crate::camera::Camera;
-use crate::color::{Color, FUDGE_FACTOR};
+use crate::color::Color;
 use crate::scene::Scene;
 use anyhow::{Context, Error};
 use rand::Rng;
@@ -32,12 +32,9 @@ fn main() -> Result<(), Error> {
     let (width, height) = scene.camera.resolution;
 
     let mut buffer = Vec::with_capacity(4 * width * height);
-    let uninitialized_buffer_color = loop {
+    let uninitialized_buffer_color = {
         let wavelength = rand::thread_rng().sample(Uniform::new(MIN_WAVELENGTH, MAX_WAVELENGTH));
-        let color = Color::from_wavelength(wavelength);
-        if color.y() > 0.1 {
-            break color;
-        }
+        Color::from_wavelength(wavelength)
     };
     for _ in 0..height {
         for _ in 0..width {
@@ -94,22 +91,14 @@ fn main() -> Result<(), Error> {
 
                             let radiance = scene.radiance(ray, wavelengths, &mut rng, None, 0);
 
-                            accumulator += Color::from_wavelength(wavelengths[0])
-                                * radiance[0]
-                                * FUDGE_FACTOR
-                                * 0.25;
-                            accumulator += Color::from_wavelength(wavelengths[1])
-                                * radiance[1]
-                                * FUDGE_FACTOR
-                                * 0.25;
-                            accumulator += Color::from_wavelength(wavelengths[2])
-                                * radiance[2]
-                                * FUDGE_FACTOR
-                                * 0.25;
-                            accumulator += Color::from_wavelength(wavelengths[3])
-                                * radiance[3]
-                                * FUDGE_FACTOR
-                                * 0.25;
+                            accumulator +=
+                                Color::from_wavelength(wavelengths[0]) * radiance[0] * 0.25;
+                            accumulator +=
+                                Color::from_wavelength(wavelengths[1]) * radiance[1] * 0.25;
+                            accumulator +=
+                                Color::from_wavelength(wavelengths[2]) * radiance[2] * 0.25;
+                            accumulator +=
+                                Color::from_wavelength(wavelengths[3]) * radiance[3] * 0.25;
                         }
 
                         let color = accumulator * (1.0 / (samples as f32));

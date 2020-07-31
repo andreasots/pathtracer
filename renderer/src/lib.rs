@@ -103,6 +103,13 @@ pub async fn renderer(
                 binding: 1,
                 visibility: wgpu::ShaderStage::FRAGMENT,
                 ty: wgpu::BindingType::Sampler { comparison: false },
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStage::FRAGMENT,
+                ty: wgpu::BindingType::UniformBuffer {
+                    dynamic: false,
+                },
             }
         ],
         label: None,
@@ -120,6 +127,11 @@ pub async fn renderer(
         compare: wgpu::CompareFunction::Never,
     });
 
+    let tone_mapping_buffer = device.create_buffer_with_data(
+        bytemuck::cast_slice(&[1.0f32, 0.0f32]),
+        wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+    );
+
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         bindings: &[
             wgpu::Binding {
@@ -130,6 +142,13 @@ pub async fn renderer(
                 binding: 1,
                 resource: wgpu::BindingResource::Sampler(&sampler),
             },
+            wgpu::Binding {
+                binding: 2,
+                resource: wgpu::BindingResource::Buffer {
+                    buffer: &tone_mapping_buffer,
+                    range: 0..2 * std::mem::size_of::<f32>() as wgpu::BufferAddress,
+                },
+            }
         ],
         layout: &bind_group_layout,
         label: None,
@@ -247,9 +266,30 @@ pub async fn renderer(
             let mut encoder =
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-            for (dst, src) in framebuffer.iter_mut().zip(buffer.iter()) {
-                *dst = f32::from_bits(src.load(Ordering::Relaxed));
+            let mut log_total_luminance = 0.0;
+            let mut max_luminance = f32::NEG_INFINITY;
+
+            for (dst, src) in framebuffer.chunks_mut(4).zip(buffer.chunks(4)) {
+                dst[0] = f32::from_bits(src[0].load(Ordering::Relaxed));
+                dst[1] = f32::from_bits(src[1].load(Ordering::Relaxed));
+                dst[2] = f32::from_bits(src[2].load(Ordering::Relaxed));
+                dst[3] = f32::from_bits(src[3].load(Ordering::Relaxed));
+
+                log_total_luminance += (0.001 + dst[1] as f64).ln();
+                max_luminance = max_luminance.max(dst[1]);
             }
+            let avg_luminance = (4.0 * log_total_luminance / framebuffer.len() as f64).exp();
+            let new_tone_mapping_buffer = device.create_buffer_with_data(
+                bytemuck::cast_slice(&[avg_luminance as f32, max_luminance]),
+                wgpu::BufferUsage::COPY_SRC,
+            );
+            encoder.copy_buffer_to_buffer(
+                &new_tone_mapping_buffer,
+                0,
+                &tone_mapping_buffer,
+                0,
+                2 * std::mem::size_of::<f32>() as wgpu::BufferAddress,
+            );
 
             let framebuffer_buffer = device.create_buffer_with_data(
                 bytemuck::cast_slice(&framebuffer),

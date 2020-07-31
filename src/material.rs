@@ -120,14 +120,14 @@ pub struct D65;
 
 impl D65 {
     pub fn sample(&self, wavelength: f32) -> f32 {
-        const TABLE: &[(u16, f32)] = &include!(concat!(env!("OUT_DIR"), "/d65.rs"));
+        const TABLE: &[f32] = &include!(concat!(env!("OUT_DIR"), "/d65.rs"));
 
-        let offset = (wavelength * 1e9).floor() - TABLE[0].0 as f32;
+        let offset = (wavelength * 1e9).floor() - 300.0 as f32;
         let index = offset.floor();
         let alpha = offset - index;
         let index = index as usize;
 
-        (TABLE[index].1 * (1.0 - alpha) + TABLE[index + 1].1 * alpha) / 100.0
+        TABLE[index] * (1.0 - alpha) + TABLE[index + 1] * alpha
     }
 
     pub fn sample4(&self, wavelengths: [f32; 4]) -> Vector4<f32> {
@@ -278,7 +278,7 @@ impl Material {
             Texture::Flat(Color::srgb(0.75, 0.75, 0.75))
         };
 
-        let emit = if let Some(ref path) = mtl.map_ke {
+        let emit = if let Some(ref path) = mtl.map_ka {
             println!("\temit: {}", path);
             let tex = image::open(mtl_path.with_file_name(path))
                 .with_context(|| format!("failed to load emissive texture {:?}", path))?;

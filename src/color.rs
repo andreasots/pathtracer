@@ -3,8 +3,6 @@ use image::{Primitive, Rgba};
 use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Mul};
 
-pub const FUDGE_FACTOR: f32 = 1.0 / 0.2250615;
-
 fn to_linear_srgb(u: f32) -> f32 {
     if u <= 0.04045 {
         u / 12.92
@@ -189,8 +187,7 @@ impl<S> Mul<Color<S>> for f32 {
 
 #[cfg(test)]
 mod test {
-    use super::{Color, FUDGE_FACTOR, XYZ};
-    use crate::material::D65;
+    use super::{Color, XYZ};
     use approx::assert_abs_diff_eq;
 
     const COLOR_EPS: f32 = 0.0001;
@@ -227,25 +224,6 @@ mod test {
         assert_abs_diff_eq!(
             Color::<XYZ>::from(Color::srgb(1.0, 1.0, 1.0)).0,
             Color::from_chromaticity_and_luminance(0.3127, 0.3290, 1.0).0,
-            epsilon = COLOR_EPS
-        );
-    }
-
-    #[test]
-    fn cmf_integral() {
-        let mut total = Color::xyz(0.0, 0.0, 0.0);
-
-        let mut n = 0.0;
-
-        for lambda in 360..830 {
-            let wavelength = lambda as f32 * 1e-9;
-            total += Color::from_wavelength(wavelength) * D65.sample(wavelength);
-            n += 1.0;
-        }
-
-        assert_abs_diff_eq!(
-            total.y() * (1.0 / n) * FUDGE_FACTOR,
-            1.0,
             epsilon = COLOR_EPS
         );
     }
