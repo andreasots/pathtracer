@@ -260,9 +260,14 @@ pub async fn renderer(
             is_done = done.load(Ordering::Acquire);
         }
         Event::RedrawRequested(..) => {
-            let frame = swap_chain
-                .get_next_texture()
-                .expect("failed to get the next frame in the swap chain");
+            let frame = match swap_chain.get_next_texture() {
+                Ok(frame) => frame,
+                Err(err) => {
+                    eprintln!("ERROR: failed to get the next frame in the swap chain: {:?}", err);
+                    return;
+                }
+            };
+
             let mut encoder =
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
