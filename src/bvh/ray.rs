@@ -64,7 +64,7 @@ impl Ray {
         let tmax = tmax.min(t1[2].max(t2[2]).max(tmin));
 
         let tmin = tmin.max(0.0);
-        
+
         if tmax >= tmin {
             Some((tmin, tmax))
         } else {

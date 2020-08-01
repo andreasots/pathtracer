@@ -1,5 +1,5 @@
-use nalgebra::{Matrix3, Vector3, Vector4};
 use image::{Primitive, Rgba};
+use nalgebra::{Matrix3, Vector3, Vector4};
 use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Mul};
 

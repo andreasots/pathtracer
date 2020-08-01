@@ -1,6 +1,6 @@
+use crate::bvh::ray::Ray;
 use approx::relative_eq;
 use nalgebra::{Point2, Point3, Vector3};
-use crate::bvh::ray::Ray;
 
 use crate::bvh::aabb::{Bounded, AABB};
 use crate::bvh::bounding_hierarchy::{Distance, Intersect};
@@ -149,9 +149,9 @@ impl Bounded for Triangle {
 #[cfg(test)]
 mod test {
     use super::Triangle;
-    use nalgebra::{Point3, Vector3};
-    use crate::bvh::ray::Ray;
     use crate::bvh::bounding_hierarchy::Intersect;
+    use crate::bvh::ray::Ray;
+    use nalgebra::{Point3, Vector3};
 
     #[test]
     fn intersection() {

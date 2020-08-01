@@ -1,11 +1,11 @@
+use crate::bvh::ray::Ray;
 use crate::color::{Color, SRGB, XYZ};
 use crate::distributions::CosineWeightedHemisphere;
 use crate::scene::Scene;
 use crate::triangle::{Intersection, Triangle};
 use anyhow::{Context, Error};
-use nalgebra::{Vector3, Vector4};
-use crate::bvh::ray::Ray;
 use image::{DynamicImage, GenericImageView};
+use nalgebra::{Vector3, Vector4};
 use rand::Rng;
 use std::ops::{Add, Index, Mul};
 use std::path::Path;

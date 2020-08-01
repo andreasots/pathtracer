@@ -107,10 +107,8 @@ pub async fn renderer(
             wgpu::BindGroupLayoutEntry {
                 binding: 2,
                 visibility: wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::UniformBuffer {
-                    dynamic: false,
-                },
-            }
+                ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+            },
         ],
         label: None,
     });
@@ -148,7 +146,7 @@ pub async fn renderer(
                     buffer: &tone_mapping_buffer,
                     range: 0..2 * std::mem::size_of::<f32>() as wgpu::BufferAddress,
                 },
-            }
+            },
         ],
         layout: &bind_group_layout,
         label: None,
@@ -263,7 +261,10 @@ pub async fn renderer(
             let frame = match swap_chain.get_next_texture() {
                 Ok(frame) => frame,
                 Err(err) => {
-                    eprintln!("ERROR: failed to get the next frame in the swap chain: {:?}", err);
+                    eprintln!(
+                        "ERROR: failed to get the next frame in the swap chain: {:?}",
+                        err
+                    );
                     return;
                 }
             };

@@ -1,5 +1,5 @@
-use nalgebra::{Point3, Vector3};
 use crate::bvh::ray::Ray;
+use nalgebra::{Point3, Vector3};
 
 pub struct Camera {
     canvas_scale: (f32, f32),

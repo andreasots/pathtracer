@@ -5,7 +5,7 @@
 //!
 
 use crate::bvh::aabb::{Bounded, AABB};
-use crate::bvh::bounding_hierarchy::{Intersect, Distance};
+use crate::bvh::bounding_hierarchy::{Distance, Intersect};
 use crate::bvh::ray::Ray;
 use crate::bvh::utils::{concatenate_vectors, joint_aabb_of_shapes, Bucket};
 use crate::bvh::EPSILON;
@@ -47,9 +47,7 @@ impl BVHNode {
     /// The build function sometimes needs to add nodes while their data is not available yet.
     /// A dummy cerated by this function serves the purpose of being changed later on.
     fn create_dummy() -> BVHNode {
-        BVHNode::Leaf {
-            shape_index: 0,
-        }
+        BVHNode::Leaf { shape_index: 0 }
     }
 
     /// Builds a [`BVHNode`] recursively using SAH partitioning.
@@ -83,9 +81,7 @@ impl BVHNode {
         if indices.len() == 1 {
             let shape_index = indices[0];
             let node_index = nodes.len();
-            nodes.push(BVHNode::Leaf {
-                shape_index,
-            });
+            nodes.push(BVHNode::Leaf { shape_index });
             return node_index;
         }
 
@@ -109,10 +105,8 @@ impl BVHNode {
             let child_r_aabb = joint_aabb_of_shapes(child_r_indices, shapes);
 
             // Proceed recursively.
-            let child_l_index =
-                BVHNode::build(shapes, child_l_indices, nodes);
-            let child_r_index =
-                BVHNode::build(shapes, child_r_indices, nodes);
+            let child_l_index = BVHNode::build(shapes, child_l_indices, nodes);
+            let child_r_index = BVHNode::build(shapes, child_r_indices, nodes);
             (child_l_index, child_l_aabb, child_r_index, child_r_aabb)
         } else {
             // Create six `Bucket`s, and six index assignment vector.
@@ -166,10 +160,8 @@ impl BVHNode {
             let child_r_indices = concatenate_vectors(r_assignments);
 
             // Proceed recursively.
-            let child_l_index =
-                BVHNode::build(shapes, &child_l_indices, nodes);
-            let child_r_index =
-                BVHNode::build(shapes, &child_r_indices, nodes);
+            let child_l_index = BVHNode::build(shapes, &child_l_indices, nodes);
+            let child_r_index = BVHNode::build(shapes, &child_r_indices, nodes);
             (child_l_index, child_l_aabb, child_r_index, child_r_aabb)
         };
 
@@ -213,20 +205,46 @@ impl BVHNode {
 
                 match (left_clip, right_clip) {
                     (Some((l_min, l_max)), Some((r_min, r_max))) => {
-                        //println!("Both: l: {:?}; r: {:?}", left_clip, right_clip);
+                        println!("Both: l: {:?}; r: {:?}", left_clip, right_clip);
 
-                        let (first_child_index, first_child_max, second_child_index, second_child_min, second_child_max) = if l_min < r_min {
+                        let (
+                            first_child_index,
+                            first_child_max,
+                            second_child_index,
+                            second_child_min,
+                            second_child_max,
+                        ) = if l_min < r_min {
                             (child_l_index, l_max, child_r_index, r_min, r_max)
                         } else {
                             (child_r_index, r_max, child_l_index, l_min, l_max)
                         };
 
-                        let first_intersection = BVHNode::traverse_recursive(nodes, first_child_index, ray, start, shapes, first_child_max.min(max_distance));
-                        let first_distance = first_intersection.as_ref().map(|(_, intersection)| intersection.distance()).unwrap_or(f32::INFINITY);
+                        let first_intersection = BVHNode::traverse_recursive(
+                            nodes,
+                            first_child_index,
+                            ray,
+                            start,
+                            shapes,
+                            first_child_max.min(max_distance),
+                        );
+                        let first_distance = first_intersection
+                            .as_ref()
+                            .map(|(_, intersection)| intersection.distance())
+                            .unwrap_or(f32::INFINITY);
 
                         if first_distance > second_child_min {
-                            let second_intersection = BVHNode::traverse_recursive(nodes, second_child_index, ray, start, shapes, first_distance.min(max_distance).min(second_child_max));
-                            let second_distance = second_intersection.as_ref().map(|(_, intersection)| intersection.distance()).unwrap_or(f32::INFINITY);
+                            let second_intersection = BVHNode::traverse_recursive(
+                                nodes,
+                                second_child_index,
+                                ray,
+                                start,
+                                shapes,
+                                first_distance.min(max_distance).min(second_child_max),
+                            );
+                            let second_distance = second_intersection
+                                .as_ref()
+                                .map(|(_, intersection)| intersection.distance())
+                                .unwrap_or(f32::INFINITY);
 
                             if first_distance < second_distance {
                                 first_intersection
@@ -237,12 +255,22 @@ impl BVHNode {
                             first_intersection
                         }
                     }
-                    (Some((_, clip_max)), None) => {
-                        BVHNode::traverse_recursive(nodes, child_l_index, ray, start, shapes, max_distance.min(clip_max))
-                    }
-                    (None, Some((_, clip_max))) => {
-                        BVHNode::traverse_recursive(nodes, child_r_index, ray, start, shapes, max_distance.min(clip_max))
-                    }
+                    (Some((_, clip_max)), None) => BVHNode::traverse_recursive(
+                        nodes,
+                        child_l_index,
+                        ray,
+                        start,
+                        shapes,
+                        max_distance.min(clip_max),
+                    ),
+                    (None, Some((_, clip_max))) => BVHNode::traverse_recursive(
+                        nodes,
+                        child_r_index,
+                        ray,
+                        start,
+                        shapes,
+                        max_distance.min(clip_max),
+                    ),
                     (None, None) => None,
                 }
             }
@@ -251,7 +279,9 @@ impl BVHNode {
                 let start_ptr = start.map(|s| s as *const _).unwrap_or_else(std::ptr::null);
                 if shape as *const _ != start_ptr {
                     // TODO: use `max_distance`
-                    shape.intersect(ray, f32::INFINITY).map(|intersection| (shape, intersection))
+                    shape
+                        .intersect(ray, f32::INFINITY)
+                        .map(|intersection| (shape, intersection))
                 } else {
                     None
                 }
@@ -289,7 +319,12 @@ impl BVH {
     /// [`BVH`]: struct.BVH.html
     /// [`AABB`]: ../aabb/struct.AABB.html
     ///
-    pub fn traverse<'a, Shape: Intersect>(&'a self, ray: &Ray, start: Option<&Shape>, shapes: &'a [Shape]) -> Option<(&'a Shape, Shape::Intersection)> {
+    pub fn traverse<'a, Shape: Intersect>(
+        &'a self,
+        ray: &Ray,
+        start: Option<&Shape>,
+        shapes: &'a [Shape],
+    ) -> Option<(&'a Shape, Shape::Intersection)> {
         BVHNode::traverse_recursive(&self.nodes, 0, ray, start, shapes, f32::INFINITY)
     }
 }
