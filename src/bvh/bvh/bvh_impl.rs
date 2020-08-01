@@ -5,12 +5,11 @@
 //!
 
 use crate::bvh::aabb::{Bounded, AABB};
-use crate::bvh::bounding_hierarchy::{BHShape, BoundingHierarchy};
+use crate::bvh::bounding_hierarchy::BHShape;
 use crate::bvh::ray::Ray;
 use crate::bvh::utils::{concatenate_vectors, joint_aabb_of_shapes, Bucket};
 use crate::bvh::EPSILON;
 use std::f32;
-use std::iter::repeat;
 
 /// The [`BVHNode`] enum that describes a node in a [`BVH`].
 /// It's either a leaf node and references a shape (by holding its index)
@@ -118,7 +117,7 @@ impl BVHNode {
     ///
     /// [`BVHNode`]: enum.BVHNode.html
     ///
-    pub fn build<T: BHShape>(
+    pub fn build<T: BHShape + Bounded>(
         shapes: &mut [T],
         indices: &[usize],
         nodes: &mut Vec<BVHNode>,
@@ -307,7 +306,7 @@ impl BVH {
     ///
     /// [`BVH`]: struct.BVH.html
     ///
-    pub fn build<Shape: BHShape>(shapes: &mut [Shape]) -> BVH {
+    pub fn build<Shape: BHShape + Bounded>(shapes: &mut [Shape]) -> BVH {
         let indices = (0..shapes.len()).collect::<Vec<usize>>();
         let expected_node_count = shapes.len() * 2;
         let mut nodes = Vec::with_capacity(expected_node_count);
@@ -321,7 +320,7 @@ impl BVH {
     /// [`BVH`]: struct.BVH.html
     /// [`AABB`]: ../aabb/struct.AABB.html
     ///
-    pub fn traverse<'a, Shape: Bounded>(&'a self, ray: &Ray, shapes: &'a [Shape]) -> Vec<&Shape> {
+    pub fn traverse<'a, Shape>(&'a self, ray: &Ray, shapes: &'a [Shape]) -> Vec<&Shape> {
         let mut indices = Vec::new();
         BVHNode::traverse_recursive(&self.nodes, 0, ray, &mut indices);
         indices
@@ -329,69 +328,93 @@ impl BVH {
             .map(|index| &shapes[*index])
             .collect::<Vec<_>>()
     }
-
-    /// Prints the [`BVH`] in a tree-like visualization.
-    ///
-    /// [`BVH`]: struct.BVH.html
-    ///
-    pub fn pretty_print(&self) {
-        let nodes = &self.nodes;
-        fn print_node(nodes: &[BVHNode], node_index: usize) {
-            match nodes[node_index] {
-                BVHNode::Node {
-                    child_l_index,
-                    child_r_index,
-                    depth,
-                    child_l_aabb,
-                    child_r_aabb,
-                    ..
-                } => {
-                    let padding: String = repeat(" ").take(depth as usize).collect();
-                    println!("{}child_l {}", padding, child_l_aabb);
-                    print_node(nodes, child_l_index);
-                    println!("{}child_r {}", padding, child_r_aabb);
-                    print_node(nodes, child_r_index);
-                }
-                BVHNode::Leaf {
-                    shape_index, depth, ..
-                } => {
-                    let padding: String = repeat(" ").take(depth as usize).collect();
-                    println!("{}shape\t{:?}", padding, shape_index);
-                }
-            }
-        }
-        print_node(nodes, 0);
-    }
-}
-
-impl BoundingHierarchy for BVH {
-    fn build<Shape: BHShape>(shapes: &mut [Shape]) -> BVH {
-        BVH::build(shapes)
-    }
-
-    fn traverse<'a, Shape: Bounded>(&'a self, ray: &Ray, shapes: &'a [Shape]) -> Vec<&Shape> {
-        self.traverse(ray, shapes)
-    }
-
-    fn pretty_print(&self) {
-        self.pretty_print();
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::bvh::bvh::BVH;
-    use crate::bvh::testbase::{build_some_bh, traverse_some_bh};
+    use crate::bvh::testbase::{generate_aligned_boxes, UnitBox};
+    use nalgebra::{Point3, Vector3};
+    use std::collections::HashSet;
+    use crate::bvh::ray::Ray;
+
+    /// Creates a `BoundingHierarchy` for a fixed scene structure.
+    fn build_some_bh() -> (Vec<UnitBox>, BVH) {
+        let mut boxes = generate_aligned_boxes();
+        let bh = BVH::build(&mut boxes);
+        (boxes, bh)
+    }
+
+    /// Given a ray, a bounding hierarchy, the complete list of shapes in the scene and a list of
+    /// expected hits, verifies, whether the ray hits only the expected shapes.
+    fn traverse_and_verify(
+        ray_origin: Point3<f32>,
+        ray_direction: Vector3<f32>,
+        all_shapes: &Vec<UnitBox>,
+        bh: &BVH,
+        expected_shapes: &HashSet<i32>,
+    ) {
+        let ray = Ray::new(ray_origin, ray_direction);
+        let hit_shapes = bh.traverse(&ray, all_shapes);
+
+        assert_eq!(expected_shapes.len(), hit_shapes.len());
+        for shape in hit_shapes {
+            assert!(expected_shapes.contains(&shape.id));
+        }
+    }
+
+    /// Perform some fixed intersection tests on BH structures.
+    pub fn traverse_some_bh() {
+        let (all_shapes, bh) = build_some_bh();
+
+        {
+            // Define a ray which traverses the x-axis from afar.
+            let origin = Point3::new(-1000.0, 0.0, 0.0);
+            let direction = Vector3::new(1.0, 0.0, 0.0);
+            let mut expected_shapes = HashSet::new();
+
+            // It should hit everything.
+            for id in -10..11 {
+                expected_shapes.insert(id);
+            }
+            traverse_and_verify(origin, direction, &all_shapes, &bh, &expected_shapes);
+        }
+
+        {
+            // Define a ray which traverses the y-axis from afar.
+            let origin = Point3::new(0.0, -1000.0, 0.0);
+            let direction = Vector3::new(0.0, 1.0, 0.0);
+
+            // It should hit only one box.
+            let mut expected_shapes = HashSet::new();
+            expected_shapes.insert(0);
+            traverse_and_verify(origin, direction, &all_shapes, &bh, &expected_shapes);
+        }
+
+        {
+            // Define a ray which intersects the x-axis diagonally.
+            let origin = Point3::new(6.0, 0.5, 0.0);
+            let direction = Vector3::new(-2.0, -1.0, 0.0);
+
+            // It should hit exactly three boxes.
+            let mut expected_shapes = HashSet::new();
+            expected_shapes.insert(4);
+            expected_shapes.insert(5);
+            expected_shapes.insert(6);
+            traverse_and_verify(origin, direction, &all_shapes, &bh, &expected_shapes);
+        }
+    }
+
 
     #[test]
     /// Tests whether the building procedure succeeds in not failing.
     fn test_build_bvh() {
-        build_some_bh::<BVH>();
+        build_some_bh();
     }
 
     #[test]
     /// Runs some primitive tests for intersections of a ray with a fixed scene given as a BVH.
     fn test_traverse_bvh() {
-        traverse_some_bh::<BVH>();
+        traverse_some_bh();
     }
 }

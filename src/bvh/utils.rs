@@ -1,7 +1,6 @@
 //! Utilities module.
 
-use crate::bvh::aabb::AABB;
-use crate::bvh::bounding_hierarchy::BHShape;
+use crate::bvh::aabb::{AABB, Bounded};
 
 /// Concatenates the list of vectors into a single vector.
 /// Drains the elements from the source `vectors`.
@@ -48,7 +47,7 @@ impl Bucket {
     }
 }
 
-pub fn joint_aabb_of_shapes<Shape: BHShape>(indices: &[usize], shapes: &[Shape]) -> AABB {
+pub fn joint_aabb_of_shapes<Shape: Bounded>(indices: &[usize], shapes: &[Shape]) -> AABB {
     let mut aabb = AABB::empty();
     for index in indices {
         let shape = &shapes[*index];

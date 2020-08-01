@@ -78,7 +78,6 @@ pub mod aabb;
 pub mod axis;
 pub mod bounding_hierarchy;
 pub mod bvh;
-pub mod flat_bvh;
 pub mod ray;
 mod utils;
 
