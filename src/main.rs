@@ -14,6 +14,7 @@ mod camera;
 mod color;
 mod distributions;
 mod material;
+mod renderer;
 mod scene;
 mod triangle;
 
@@ -124,7 +125,7 @@ fn main() -> Result<(), Error> {
         });
     }
 
-    pollster::block_on(renderer::renderer(
+    pollster::block_on(crate::renderer::renderer(
         width,
         height,
         &format!("pathtracer: {}", scene_file_name.to_string_lossy()),
