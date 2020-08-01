@@ -151,10 +151,8 @@ impl BHShape for Triangle {
 #[cfg(test)]
 mod test {
     use super::Triangle;
-    use approx::assert_relative_eq;
     use nalgebra::{Point3, Vector3};
     use crate::bvh::ray::Ray;
-    use quickcheck_macros::quickcheck;
 
     #[test]
     fn intersection() {
@@ -169,7 +167,7 @@ mod test {
 
         let ray = Ray::new(
             Point3::new(1.0 / 3.0, 1.0 / 3.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
+            Vector3::new(0.0, 0.0, -1.0),
         );
 
         let intersection = tri.intersect(&ray, f32::INFINITY).expect("no intersection");
@@ -257,50 +255,5 @@ mod test {
 
         let intersection = tri.intersect(&ray, f32::INFINITY);
         assert!(intersection.is_none(), "intersected at {:?}", intersection);
-    }
-
-    #[quickcheck]
-    fn fast_triangle_is_equivalent_to_slow_triangle(a: (f32, f32), b: (f32, f32)) -> bool {
-        let a = Point3::new(a.0.sin() * a.1.cos(), a.0.sin() * a.1.sin(), a.0.cos());
-        let b = Point3::new(b.0.sin() * b.1.cos(), b.0.sin() * b.1.sin(), b.0.cos());
-        let dir = b - a;
-        let ray = Ray::new(a, dir);
-
-        let triangle = Triangle::new(
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(
-                (2.0 * std::f32::consts::FRAC_PI_3).cos(),
-                (2.0 * std::f32::consts::FRAC_PI_3).sin(),
-                0.0,
-            ),
-            Point3::new(
-                (4.0 * std::f32::consts::FRAC_PI_3).cos(),
-                (4.0 * std::f32::consts::FRAC_PI_3).sin(),
-                0.0,
-            ),
-            None,
-            None,
-            0,
-        );
-
-        let intersection = match ray.intersects_triangle(&triangle.a, &triangle.b, &triangle.c) {
-            intersection if intersection.distance.is_infinite() => {
-                let mut intersection = ray.intersects_triangle(&triangle.a, &triangle.c, &triangle.b);
-                std::mem::swap(&mut intersection.u, &mut intersection.v);
-                intersection
-            },
-            intersection => intersection,
-        };
-        let fast_intersection = triangle.intersect(&ray, f32::INFINITY);
-
-        if let Some(fast_intersection) = fast_intersection {
-            assert_relative_eq!(intersection.distance, fast_intersection.distance);
-            assert_relative_eq!(intersection.u, fast_intersection.u);
-            assert_relative_eq!(intersection.v, fast_intersection.v);
-        } else {
-            assert_eq!(intersection.distance, f32::INFINITY);
-        }
-
-        true
     }
 }
