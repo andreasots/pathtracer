@@ -3,7 +3,7 @@ use nalgebra::{Point2, Point3, Vector3};
 use crate::bvh::ray::Ray;
 
 use crate::bvh::aabb::{Bounded, AABB};
-use crate::bvh::bounding_hierarchy::BHShape;
+use crate::bvh::bounding_hierarchy::{Distance, Intersect};
 
 #[derive(Copy, Clone, Debug)]
 pub struct Triangle {
@@ -14,7 +14,6 @@ pub struct Triangle {
     uv: Option<[Point2<f32>; 3]>,
     vertex_normals: Option<[Vector3<f32>; 3]>,
 
-    bh_node_index: usize,
     material_index: usize,
 
     n: Vector3<f32>,
@@ -33,6 +32,12 @@ pub struct Intersection {
     pub u: f32,
     pub v: f32,
     pub normal: Vector3<f32>,
+}
+
+impl Distance for Intersection {
+    fn distance(&self) -> f32 {
+        self.distance
+    }
 }
 
 impl Triangle {
@@ -64,7 +69,6 @@ impl Triangle {
             uv,
             vertex_normals,
 
-            bh_node_index: usize::MAX,
             material_index,
 
             n,
@@ -87,9 +91,13 @@ impl Triangle {
     pub fn vertex_normals(&self) -> Option<[Vector3<f32>; 3]> {
         self.vertex_normals
     }
+}
+
+impl Intersect for Triangle {
+    type Intersection = Intersection;
 
     /// Yet Faster Ray-Triangle Intersection (Using SSE4) by Jiřı́ Havel and Adam Herout
-    pub fn intersect(&self, ray: &Ray, max_distance: f32) -> Option<Intersection> {
+    fn intersect(&self, ray: &Ray, max_distance: f32) -> Option<Intersection> {
         // Everything is scaled by `det` to avoid the division.
         let det = ray.direction.dot(&self.n);
         if det == 0.0 {
@@ -138,21 +146,12 @@ impl Bounded for Triangle {
     }
 }
 
-impl BHShape for Triangle {
-    fn set_bh_node_index(&mut self, i: usize) {
-        self.bh_node_index = i;
-    }
-
-    fn bh_node_index(&self) -> usize {
-        self.bh_node_index
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::Triangle;
     use nalgebra::{Point3, Vector3};
     use crate::bvh::ray::Ray;
+    use crate::bvh::bounding_hierarchy::Intersect;
 
     #[test]
     fn intersection() {

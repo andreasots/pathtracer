@@ -60,71 +60,28 @@ impl Ray {
         }
     }
 
-    /// Tests the intersection of a [`Ray`] with an [`AABB`] using the optimized algorithm
-    /// from [this paper](http://www.cs.utah.edu/~awilliam/box/box.pdf).
-    ///
-    /// # Examples
-    /// ```
-    /// use bvh::aabb::AABB;
-    /// use bvh::ray::Ray;
-    /// use bvh::nalgebra::{Point3,Vector3};
-    ///
-    /// let origin = Point3::new(0.0,0.0,0.0);
-    /// let direction = Vector3::new(1.0,0.0,0.0);
-    /// let ray = Ray::new(origin, direction);
-    ///
-    /// let point1 = Point3::new(99.9,-1.0,-1.0);
-    /// let point2 = Point3::new(100.1,1.0,1.0);
-    /// let aabb = AABB::with_bounds(point1, point2);
-    ///
-    /// assert!(ray.intersects_aabb(&aabb));
-    /// ```
-    ///
-    /// [`Ray`]: struct.Ray.html
-    /// [`AABB`]: struct.AABB.html
-    ///
-    pub fn intersects_aabb(&self, aabb: &AABB) -> bool {
-        let mut ray_min = (aabb[self.sign.x].x - self.origin.x) * self.inv_direction.x;
-        let mut ray_max = (aabb[1 - self.sign.x].x - self.origin.x) * self.inv_direction.x;
+    /// Implementation of the algorithm described [here]
+    /// (https://tavianator.com/fast-branchless-raybounding-box-intersections/).
+    pub fn clip_aabb(&self, aabb: &AABB) -> Option<(f32, f32)> {
+        let t1 = (aabb.min - self.origin).component_mul(&self.inv_direction);
+        let t2 = (aabb.max - self.origin).component_mul(&self.inv_direction);
 
-        let y_min = (aabb[self.sign.y].y - self.origin.y) * self.inv_direction.y;
-        let y_max = (aabb[1 - self.sign.y].y - self.origin.y) * self.inv_direction.y;
+        let tmin = t1[0].min(t2[0]);
+        let tmax = t1[0].max(t2[0]);
 
-        if (ray_min > y_max) || (y_min > ray_max) {
-            return false;
+        let tmin = tmin.max(t1[1].min(t2[1]).min(tmax));
+        let tmax = tmax.min(t1[1].max(t2[1]).max(tmin));
+
+        let tmin = tmin.max(t1[2].min(t2[2]).min(tmax));
+        let tmax = tmax.min(t1[2].max(t2[2]).max(tmin));
+
+        let tmin = tmin.max(0.0);
+        
+        if tmax >= tmin {
+            Some((tmin, tmax))
+        } else {
+            None
         }
-
-        if y_min > ray_min {
-            ray_min = y_min;
-        }
-        // Using the following solution significantly decreases the performance
-        // ray_min = ray_min.max(y_min);
-
-        if y_max < ray_max {
-            ray_max = y_max;
-        }
-        // Using the following solution significantly decreases the performance
-        // ray_max = ray_max.min(y_max);
-
-        let z_min = (aabb[self.sign.z].z - self.origin.z) * self.inv_direction.z;
-        let z_max = (aabb[1 - self.sign.z].z - self.origin.z) * self.inv_direction.z;
-
-        if (ray_min > z_max) || (z_min > ray_max) {
-            return false;
-        }
-
-        // Only required for bounded intersection intervals.
-        // if z_min > ray_min {
-        // ray_min = z_min;
-        // }
-
-        if z_max < ray_max {
-            ray_max = z_max;
-        }
-        // Using the following solution significantly decreases the performance
-        // ray_max = ray_max.min(y_max);
-
-        ray_max > 0.0
     }
 }
 
@@ -157,7 +114,7 @@ mod tests {
     quickcheck! {
         fn test_ray_points_at_aabb_center(data: (TupleVec, TupleVec, TupleVec)) -> bool {
             let (ray, aabb) = gen_ray_to_aabb(data);
-            ray.intersects_aabb(&aabb)
+            ray.clip_aabb(&aabb).is_some()
         }
     }
 }

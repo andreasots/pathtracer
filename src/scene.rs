@@ -255,30 +255,7 @@ impl Scene {
             return Vector4::from_element(0.0);
         }
 
-        let mut intersection = None::<(Intersection, &Triangle)>;
-
-        for candidate in self.bvh.traverse(&ray, &self.triangles) {
-            if candidate as *const _
-                == start
-                    .map(|tri| tri as *const _)
-                    .unwrap_or_else(std::ptr::null)
-            {
-                continue;
-            }
-
-            let max_distance = intersection
-                .map(|(i, _)| i.distance)
-                .unwrap_or(f32::INFINITY);
-
-            let candidate_intersection = candidate.intersect(&ray, max_distance);
-            if let Some(candidate_intersection) = candidate_intersection {
-                if candidate_intersection.distance < max_distance {
-                    intersection = Some((candidate_intersection, candidate));
-                }
-            }
-        }
-
-        if let Some((intersection, triangle)) = intersection {
+        if let Some((triangle, intersection)) = self.bvh.traverse(&ray, start, &self.triangles) {
             self.materials[triangle.material_index()].radiance(
                 ray,
                 wavelengths,

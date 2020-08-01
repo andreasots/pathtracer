@@ -5,7 +5,7 @@
 //!
 
 use crate::bvh::aabb::{Bounded, AABB};
-use crate::bvh::bounding_hierarchy::BHShape;
+use crate::bvh::bounding_hierarchy::{Intersect, Distance};
 use crate::bvh::ray::Ray;
 use crate::bvh::utils::{concatenate_vectors, joint_aabb_of_shapes, Bucket};
 use crate::bvh::EPSILON;
@@ -117,7 +117,7 @@ impl BVHNode {
     ///
     /// [`BVHNode`]: enum.BVHNode.html
     ///
-    pub fn build<T: BHShape + Bounded>(
+    pub fn build<T: Bounded>(
         shapes: &mut [T],
         indices: &[usize],
         nodes: &mut Vec<BVHNode>,
@@ -150,8 +150,6 @@ impl BVHNode {
                 depth,
                 shape_index,
             });
-            // Let the shape know the index of the node that represents it.
-            shapes[shape_index].set_bh_node_index(node_index);
             return node_index;
         }
 
@@ -261,12 +259,14 @@ impl BVHNode {
     /// [`BVH`]: struct.BVH.html
     /// [`Ray`]: ../ray/struct.Ray.html
     ///
-    pub fn traverse_recursive(
+    pub fn traverse_recursive<'a, Shape: Intersect>(
         nodes: &[BVHNode],
         node_index: usize,
         ray: &Ray,
-        indices: &mut Vec<usize>,
-    ) {
+        start: Option<&Shape>,
+        shapes: &'a [Shape],
+        max_distance: f32,
+    ) -> Option<(&'a Shape, Shape::Intersection)> {
         match nodes[node_index] {
             BVHNode::Node {
                 ref child_l_aabb,
@@ -275,15 +275,53 @@ impl BVHNode {
                 child_r_index,
                 ..
             } => {
-                if ray.intersects_aabb(child_l_aabb) {
-                    BVHNode::traverse_recursive(nodes, child_l_index, ray, indices);
-                }
-                if ray.intersects_aabb(child_r_aabb) {
-                    BVHNode::traverse_recursive(nodes, child_r_index, ray, indices);
+                let left_clip = ray.clip_aabb(child_l_aabb);
+                let right_clip = ray.clip_aabb(child_r_aabb);
+
+                match (left_clip, right_clip) {
+                    (Some((l_min, l_max)), Some((r_min, r_max))) => {
+                        //println!("Both: l: {:?}; r: {:?}", left_clip, right_clip);
+
+                        let (first_child_index, first_child_max, second_child_index, second_child_min, second_child_max) = if l_min < r_min {
+                            (child_l_index, l_max, child_r_index, r_min, r_max)
+                        } else {
+                            (child_r_index, r_max, child_l_index, l_min, l_max)
+                        };
+
+                        let first_intersection = BVHNode::traverse_recursive(nodes, first_child_index, ray, start, shapes, first_child_max.min(max_distance));
+                        let first_distance = first_intersection.as_ref().map(|(_, intersection)| intersection.distance()).unwrap_or(f32::INFINITY);
+
+                        if first_distance > second_child_min {
+                            let second_intersection = BVHNode::traverse_recursive(nodes, second_child_index, ray, start, shapes, first_distance.min(max_distance).min(second_child_max));
+                            let second_distance = second_intersection.as_ref().map(|(_, intersection)| intersection.distance()).unwrap_or(f32::INFINITY);
+
+                            if first_distance < second_distance {
+                                first_intersection
+                            } else {
+                                second_intersection
+                            }
+                        } else {
+                            first_intersection
+                        }
+                    }
+                    (Some((_, clip_max)), None) => {
+                        BVHNode::traverse_recursive(nodes, child_l_index, ray, start, shapes, max_distance.min(clip_max))
+                    }
+                    (None, Some((_, clip_max))) => {
+                        BVHNode::traverse_recursive(nodes, child_r_index, ray, start, shapes, max_distance.min(clip_max))
+                    }
+                    (None, None) => None,
                 }
             }
             BVHNode::Leaf { shape_index, .. } => {
-                indices.push(shape_index);
+                let shape = &shapes[shape_index];
+                let start_ptr = start.map(|s| s as *const _).unwrap_or_else(std::ptr::null);
+                if shape as *const _ != start_ptr {
+                    // TODO: use `max_distance`
+                    shape.intersect(ray, f32::INFINITY).map(|intersection| (shape, intersection))
+                } else {
+                    None
+                }
             }
         }
     }
@@ -294,9 +332,7 @@ impl BVHNode {
 /// [`BVH`]: struct.BVH.html
 ///
 pub struct BVH {
-    /// The list of nodes of the [`BVH`].
-    ///
-    /// [`BVH`]: struct.BVH.html
+    /// The list of nodes of the [`BVH`].Vec<&Shape>
     ///
     pub nodes: Vec<BVHNode>,
 }
@@ -306,7 +342,7 @@ impl BVH {
     ///
     /// [`BVH`]: struct.BVH.html
     ///
-    pub fn build<Shape: BHShape + Bounded>(shapes: &mut [Shape]) -> BVH {
+    pub fn build<Shape: Bounded>(shapes: &mut [Shape]) -> BVH {
         let indices = (0..shapes.len()).collect::<Vec<usize>>();
         let expected_node_count = shapes.len() * 2;
         let mut nodes = Vec::with_capacity(expected_node_count);
@@ -320,101 +356,7 @@ impl BVH {
     /// [`BVH`]: struct.BVH.html
     /// [`AABB`]: ../aabb/struct.AABB.html
     ///
-    pub fn traverse<'a, Shape>(&'a self, ray: &Ray, shapes: &'a [Shape]) -> Vec<&Shape> {
-        let mut indices = Vec::new();
-        BVHNode::traverse_recursive(&self.nodes, 0, ray, &mut indices);
-        indices
-            .iter()
-            .map(|index| &shapes[*index])
-            .collect::<Vec<_>>()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::bvh::bvh::BVH;
-    use crate::bvh::testbase::{generate_aligned_boxes, UnitBox};
-    use nalgebra::{Point3, Vector3};
-    use std::collections::HashSet;
-    use crate::bvh::ray::Ray;
-
-    /// Creates a `BoundingHierarchy` for a fixed scene structure.
-    fn build_some_bh() -> (Vec<UnitBox>, BVH) {
-        let mut boxes = generate_aligned_boxes();
-        let bh = BVH::build(&mut boxes);
-        (boxes, bh)
-    }
-
-    /// Given a ray, a bounding hierarchy, the complete list of shapes in the scene and a list of
-    /// expected hits, verifies, whether the ray hits only the expected shapes.
-    fn traverse_and_verify(
-        ray_origin: Point3<f32>,
-        ray_direction: Vector3<f32>,
-        all_shapes: &Vec<UnitBox>,
-        bh: &BVH,
-        expected_shapes: &HashSet<i32>,
-    ) {
-        let ray = Ray::new(ray_origin, ray_direction);
-        let hit_shapes = bh.traverse(&ray, all_shapes);
-
-        assert_eq!(expected_shapes.len(), hit_shapes.len());
-        for shape in hit_shapes {
-            assert!(expected_shapes.contains(&shape.id));
-        }
-    }
-
-    /// Perform some fixed intersection tests on BH structures.
-    pub fn traverse_some_bh() {
-        let (all_shapes, bh) = build_some_bh();
-
-        {
-            // Define a ray which traverses the x-axis from afar.
-            let origin = Point3::new(-1000.0, 0.0, 0.0);
-            let direction = Vector3::new(1.0, 0.0, 0.0);
-            let mut expected_shapes = HashSet::new();
-
-            // It should hit everything.
-            for id in -10..11 {
-                expected_shapes.insert(id);
-            }
-            traverse_and_verify(origin, direction, &all_shapes, &bh, &expected_shapes);
-        }
-
-        {
-            // Define a ray which traverses the y-axis from afar.
-            let origin = Point3::new(0.0, -1000.0, 0.0);
-            let direction = Vector3::new(0.0, 1.0, 0.0);
-
-            // It should hit only one box.
-            let mut expected_shapes = HashSet::new();
-            expected_shapes.insert(0);
-            traverse_and_verify(origin, direction, &all_shapes, &bh, &expected_shapes);
-        }
-
-        {
-            // Define a ray which intersects the x-axis diagonally.
-            let origin = Point3::new(6.0, 0.5, 0.0);
-            let direction = Vector3::new(-2.0, -1.0, 0.0);
-
-            // It should hit exactly three boxes.
-            let mut expected_shapes = HashSet::new();
-            expected_shapes.insert(4);
-            expected_shapes.insert(5);
-            expected_shapes.insert(6);
-            traverse_and_verify(origin, direction, &all_shapes, &bh, &expected_shapes);
-        }
-    }
-
-
-    #[test]
-    /// Tests whether the building procedure succeeds in not failing.
-    fn test_build_bvh() {
-        build_some_bh();
-    }
-
-    #[test]
-    /// Runs some primitive tests for intersections of a ray with a fixed scene given as a BVH.
-    fn test_traverse_bvh() {
-        traverse_some_bh();
+    pub fn traverse<'a, Shape: Intersect>(&'a self, ray: &Ray, start: Option<&Shape>, shapes: &'a [Shape]) -> Option<(&'a Shape, Shape::Intersection)> {
+        BVHNode::traverse_recursive(&self.nodes, 0, ray, start, shapes, f32::INFINITY)
     }
 }

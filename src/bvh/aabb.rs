@@ -1,12 +1,9 @@
 //! Axis Aligned Bounding Boxes.
 
 use std::f32;
-use std::fmt;
 use std::ops::Index;
 
 use nalgebra::{Point3, Vector3};
-
-use crate::bvh::axis::Axis;
 
 /// AABB struct.
 #[derive(Debug, Copy, Clone)]
@@ -16,12 +13,6 @@ pub struct AABB {
 
     /// Maximum coordinates
     pub max: Point3<f32>,
-}
-
-impl fmt::Display for AABB {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Min bound: {}; Max bound: {}", self.min, self.max)
-    }
 }
 
 /// A trait implemented by things which can be bounded by an [`AABB`].
@@ -349,15 +340,8 @@ impl AABB {
     ///
     /// [`AABB`]: struct.AABB.html
     ///
-    pub fn largest_axis(&self) -> Axis {
-        let size = self.size();
-        if size.x > size.y && size.x > size.z {
-            Axis::X
-        } else if size.y > size.z {
-            Axis::Y
-        } else {
-            Axis::Z
-        }
+    pub fn largest_axis(&self) -> usize {
+        self.size().argmax().0
     }
 }
 

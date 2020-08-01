@@ -75,7 +75,6 @@
 pub const EPSILON: f32 = 0.00001;
 
 pub mod aabb;
-pub mod axis;
 pub mod bounding_hierarchy;
 pub mod bvh;
 pub mod ray;
