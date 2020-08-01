@@ -1,5 +1,5 @@
-use bvh::nalgebra::{Point3, Vector3};
-use bvh::ray::Ray;
+use nalgebra::{Point3, Vector3};
+use crate::bvh::ray::Ray;
 
 pub struct Camera {
     canvas_scale: (f32, f32),
@@ -42,7 +42,7 @@ impl From<crate::scene::Camera> for Camera {
 #[cfg(test)]
 mod test {
     use super::Camera;
-    use bvh::nalgebra::Vector3;
+    use nalgebra::Vector3;
 
     #[test]
     fn corners() {

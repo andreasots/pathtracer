@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
+mod bvh;
 mod camera;
 mod color;
 mod distributions;

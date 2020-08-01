@@ -1,4 +1,4 @@
-use bvh::nalgebra::Vector3;
+use nalgebra::Vector3;
 use rand::Rng;
 use rand_distr::Distribution;
 

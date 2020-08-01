@@ -1,4 +1,4 @@
-use bvh::nalgebra::{Matrix3, Vector3, Vector4};
+use nalgebra::{Matrix3, Vector3, Vector4};
 use image::{Primitive, Rgba};
 use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Mul};
@@ -190,7 +190,7 @@ mod test {
     use super::{Color, XYZ};
     use approx::assert_abs_diff_eq;
 
-    const COLOR_EPS: f32 = 0.0001;
+    const COLOR_EPS: f32 = 0.001;
 
     #[test]
     fn srgb_primary_r() {

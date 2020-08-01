@@ -1,10 +1,9 @@
 use approx::relative_eq;
-use bvh::nalgebra::{Point2, Vector3};
-use bvh::ray::Ray;
+use nalgebra::{Point2, Point3, Vector3};
+use crate::bvh::ray::Ray;
 
-use bvh::aabb::{Bounded, AABB};
-use bvh::bounding_hierarchy::BHShape;
-use bvh::nalgebra::Point3;
+use crate::bvh::aabb::{Bounded, AABB};
+use crate::bvh::bounding_hierarchy::BHShape;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Triangle {
@@ -153,8 +152,8 @@ impl BHShape for Triangle {
 mod test {
     use super::Triangle;
     use approx::assert_relative_eq;
-    use bvh::nalgebra::{Point3, Vector3};
-    use bvh::ray::Ray;
+    use nalgebra::{Point3, Vector3};
+    use crate::bvh::ray::Ray;
     use quickcheck_macros::quickcheck;
 
     #[test]
@@ -284,11 +283,18 @@ mod test {
             0,
         );
 
-        let intersection = ray.intersects_triangle(&triangle.a, &triangle.b, &triangle.c);
+        let intersection = match ray.intersects_triangle(&triangle.a, &triangle.b, &triangle.c) {
+            intersection if intersection.distance.is_infinite() => {
+                let mut intersection = ray.intersects_triangle(&triangle.a, &triangle.c, &triangle.b);
+                std::mem::swap(&mut intersection.u, &mut intersection.v);
+                intersection
+            },
+            intersection => intersection,
+        };
         let fast_intersection = triangle.intersect(&ray, f32::INFINITY);
 
         if let Some(fast_intersection) = fast_intersection {
-            assert_eq!(intersection.distance, fast_intersection.distance);
+            assert_relative_eq!(intersection.distance, fast_intersection.distance);
             assert_relative_eq!(intersection.u, fast_intersection.u);
             assert_relative_eq!(intersection.v, fast_intersection.v);
         } else {

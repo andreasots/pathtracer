@@ -1,9 +1,9 @@
 use crate::material::{Material, D65};
 use crate::triangle::{Intersection, Triangle};
 use anyhow::{Context, Error};
-use bvh::bvh::BVH;
-use bvh::nalgebra::{Matrix4, Point2, Point3, Vector3, Vector4};
-use bvh::ray::Ray;
+use crate::bvh::bvh::BVH;
+use nalgebra::{Matrix4, Point2, Point3, Vector3, Vector4};
+use crate::bvh::ray::Ray;
 use obj::{IndexTuple, Obj, ObjMaterial};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
