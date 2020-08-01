@@ -1,8 +1,5 @@
 //! Axis Aligned Bounding Boxes.
 
-use std::f32;
-use std::ops::Index;
-
 use nalgebra::{Point3, Vector3};
 
 /// AABB struct.
@@ -353,84 +350,6 @@ impl AABB {
 impl Default for AABB {
     fn default() -> AABB {
         AABB::empty()
-    }
-}
-
-/// Make [`AABB`]s indexable. `aabb[0]` gives a reference to the minimum bound.
-/// All other indices return a reference to the maximum bound.
-///
-/// # Examples
-/// ```
-/// use bvh::aabb::AABB;
-/// use bvh::nalgebra::Point3;
-///
-/// let min = Point3::new(3.0,4.0,5.0);
-/// let max = Point3::new(123.0,123.0,123.0);
-///
-/// let aabb = AABB::with_bounds(min, max);
-/// assert_eq!(aabb[0], min);
-/// assert_eq!(aabb[1], max);
-/// ```
-///
-/// [`AABB`]: struct.AABB.html
-///
-impl Index<usize> for AABB {
-    type Output = Point3<f32>;
-
-    fn index(&self, index: usize) -> &Point3<f32> {
-        if index == 0 {
-            &self.min
-        } else {
-            &self.max
-        }
-    }
-}
-
-/// Implementation of [`Bounded`] for [`AABB`].
-///
-/// # Examples
-/// ```
-/// use bvh::aabb::{AABB, Bounded};
-/// use bvh::nalgebra::Point3;
-///
-/// let point_a = Point3::new(3.0,4.0,5.0);
-/// let point_b = Point3::new(17.0,18.0,19.0);
-/// let aabb = AABB::empty().grow(&point_a).grow(&point_b);
-///
-/// let aabb_aabb = aabb.aabb();
-///
-/// assert_eq!(aabb_aabb.min, aabb.min);
-/// assert_eq!(aabb_aabb.max, aabb.max);
-/// ```
-///
-/// [`AABB`]: struct.AABB.html
-/// [`Bounded`]: trait.Bounded.html
-///
-impl Bounded for AABB {
-    fn aabb(&self) -> AABB {
-        *self
-    }
-}
-
-/// Implementation of [`Bounded`] for [`Point3`].
-///
-/// # Examples
-/// ```
-/// use bvh::aabb::{AABB, Bounded};
-/// use bvh::nalgebra::Point3;
-///
-/// let point = Point3::new(3.0,4.0,5.0);
-///
-/// let aabb = point.aabb();
-/// assert!(aabb.contains(&point));
-/// ```
-///
-/// [`Bounded`]: trait.Bounded.html
-/// [`Point3`]: http://nalgebra.org/doc/nalgebra/struct.Point3.html
-///
-impl Bounded for Point3<f32> {
-    fn aabb(&self) -> AABB {
-        AABB::with_bounds(*self, *self)
     }
 }
 

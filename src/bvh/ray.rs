@@ -18,13 +18,6 @@ pub struct Ray {
     /// [`AABB`]: struct.AABB.html
     ///
     inv_direction: Vector3<f32>,
-
-    /// Sign of the direction. 0 means positive, 1 means negative.
-    /// Cached for use in [`AABB`] intersections.
-    ///
-    /// [`AABB`]: struct.AABB.html
-    ///
-    sign: Vector3<usize>,
 }
 
 impl Ray {
@@ -52,11 +45,6 @@ impl Ray {
             origin,
             direction,
             inv_direction: Vector3::new(1.0 / direction.x, 1.0 / direction.y, 1.0 / direction.z),
-            sign: Vector3::new(
-                (direction.x < 0.0) as usize,
-                (direction.y < 0.0) as usize,
-                (direction.z < 0.0) as usize,
-            ),
         }
     }
 

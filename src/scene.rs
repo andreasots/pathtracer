@@ -1,5 +1,5 @@
 use crate::material::{Material, D65};
-use crate::triangle::{Intersection, Triangle};
+use crate::triangle::Triangle;
 use anyhow::{Context, Error};
 use crate::bvh::bvh::BVH;
 use nalgebra::{Matrix4, Point2, Point3, Vector3, Vector4};

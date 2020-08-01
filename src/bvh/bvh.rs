@@ -24,23 +24,11 @@ use std::f32;
 pub enum BVHNode {
     /// Leaf node.
     Leaf {
-        /// The node's parent.
-        parent_index: usize,
-
-        /// The node's depth.
-        depth: u32,
-
         /// The shape contained in this leaf.
         shape_index: usize,
     },
     /// Inner node.
     Node {
-        /// The node's parent.
-        parent_index: usize,
-
-        /// The node's depth.
-        depth: u32,
-
         /// Index of the left subtree's root node.
         child_l_index: usize,
 
@@ -55,59 +43,11 @@ pub enum BVHNode {
     },
 }
 
-impl PartialEq for BVHNode {
-    // TODO Consider also comparing AABBs
-    fn eq(&self, other: &BVHNode) -> bool {
-        match (self, other) {
-            (
-                &BVHNode::Node {
-                    parent_index: self_parent_index,
-                    depth: self_depth,
-                    child_l_index: self_child_l_index,
-                    child_r_index: self_child_r_index,
-                    ..
-                },
-                &BVHNode::Node {
-                    parent_index: other_parent_index,
-                    depth: other_depth,
-                    child_l_index: other_child_l_index,
-                    child_r_index: other_child_r_index,
-                    ..
-                },
-            ) => {
-                self_parent_index == other_parent_index
-                    && self_depth == other_depth
-                    && self_child_l_index == other_child_l_index
-                    && self_child_r_index == other_child_r_index
-            }
-            (
-                &BVHNode::Leaf {
-                    parent_index: self_parent_index,
-                    depth: self_depth,
-                    shape_index: self_shape_index,
-                },
-                &BVHNode::Leaf {
-                    parent_index: other_parent_index,
-                    depth: other_depth,
-                    shape_index: other_shape_index,
-                },
-            ) => {
-                self_parent_index == other_parent_index
-                    && self_depth == other_depth
-                    && self_shape_index == other_shape_index
-            }
-            _ => false,
-        }
-    }
-}
-
 impl BVHNode {
     /// The build function sometimes needs to add nodes while their data is not available yet.
     /// A dummy cerated by this function serves the purpose of being changed later on.
     fn create_dummy() -> BVHNode {
         BVHNode::Leaf {
-            parent_index: 0,
-            depth: 0,
             shape_index: 0,
         }
     }
@@ -121,8 +61,6 @@ impl BVHNode {
         shapes: &mut [T],
         indices: &[usize],
         nodes: &mut Vec<BVHNode>,
-        parent_index: usize,
-        depth: u32,
     ) -> usize {
         // Helper function to accumulate the AABB joint and the centroids AABB
         fn grow_convex_hull(convex_hull: (AABB, AABB), shape_aabb: &AABB) -> (AABB, AABB) {
@@ -146,8 +84,6 @@ impl BVHNode {
             let shape_index = indices[0];
             let node_index = nodes.len();
             nodes.push(BVHNode::Leaf {
-                parent_index,
-                depth,
                 shape_index,
             });
             return node_index;
@@ -174,9 +110,9 @@ impl BVHNode {
 
             // Proceed recursively.
             let child_l_index =
-                BVHNode::build(shapes, child_l_indices, nodes, node_index, depth + 1);
+                BVHNode::build(shapes, child_l_indices, nodes);
             let child_r_index =
-                BVHNode::build(shapes, child_r_indices, nodes, node_index, depth + 1);
+                BVHNode::build(shapes, child_r_indices, nodes);
             (child_l_index, child_l_aabb, child_r_index, child_r_aabb)
         } else {
             // Create six `Bucket`s, and six index assignment vector.
@@ -231,9 +167,9 @@ impl BVHNode {
 
             // Proceed recursively.
             let child_l_index =
-                BVHNode::build(shapes, &child_l_indices, nodes, node_index, depth + 1);
+                BVHNode::build(shapes, &child_l_indices, nodes);
             let child_r_index =
-                BVHNode::build(shapes, &child_r_indices, nodes, node_index, depth + 1);
+                BVHNode::build(shapes, &child_r_indices, nodes);
             (child_l_index, child_l_aabb, child_r_index, child_r_aabb)
         };
 
@@ -241,8 +177,6 @@ impl BVHNode {
         assert!(!child_l_aabb.is_empty());
         assert!(!child_r_aabb.is_empty());
         nodes[node_index] = BVHNode::Node {
-            parent_index,
-            depth,
             child_l_aabb,
             child_l_index,
             child_r_aabb,
@@ -273,7 +207,6 @@ impl BVHNode {
                 child_l_index,
                 ref child_r_aabb,
                 child_r_index,
-                ..
             } => {
                 let left_clip = ray.clip_aabb(child_l_aabb);
                 let right_clip = ray.clip_aabb(child_r_aabb);
@@ -313,7 +246,7 @@ impl BVHNode {
                     (None, None) => None,
                 }
             }
-            BVHNode::Leaf { shape_index, .. } => {
+            BVHNode::Leaf { shape_index } => {
                 let shape = &shapes[shape_index];
                 let start_ptr = start.map(|s| s as *const _).unwrap_or_else(std::ptr::null);
                 if shape as *const _ != start_ptr {
@@ -346,7 +279,7 @@ impl BVH {
         let indices = (0..shapes.len()).collect::<Vec<usize>>();
         let expected_node_count = shapes.len() * 2;
         let mut nodes = Vec::with_capacity(expected_node_count);
-        BVHNode::build(shapes, &indices, &mut nodes, 0, 0);
+        BVHNode::build(shapes, &indices, &mut nodes);
         BVH { nodes }
     }
 
