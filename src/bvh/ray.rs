@@ -50,23 +50,23 @@ impl Ray {
 
     /// Implementation of the algorithm described [here]
     /// (https://tavianator.com/fast-branchless-raybounding-box-intersections/).
-    pub fn clip_aabb(&self, aabb: &AABB) -> Option<(f32, f32)> {
+    pub fn intersects_aabb(&self, aabb: &AABB) -> Option<f32> {
         let t1 = (aabb.min - self.origin).component_mul(&self.inv_direction);
         let t2 = (aabb.max - self.origin).component_mul(&self.inv_direction);
 
         let tmin = t1[0].min(t2[0]);
         let tmax = t1[0].max(t2[0]);
 
-        let tmin = tmin.max(t1[1].min(t2[1]).min(tmax));
-        let tmax = tmax.min(t1[1].max(t2[1]).max(tmin));
+        let tmin = tmin.max(t1[1].min(t2[1]));
+        let tmax = tmax.min(t1[1].max(t2[1]));
 
-        let tmin = tmin.max(t1[2].min(t2[2]).min(tmax));
-        let tmax = tmax.min(t1[2].max(t2[2]).max(tmin));
+        let tmin = tmin.max(t1[2].min(t2[2]));
+        let tmax = tmax.min(t1[2].max(t2[2]));
 
         let tmin = tmin.max(0.0);
 
         if tmax >= tmin {
-            Some((tmin, tmax))
+            Some(tmin)
         } else {
             None
         }
@@ -102,7 +102,7 @@ mod tests {
     quickcheck! {
         fn test_ray_points_at_aabb_center(data: (TupleVec, TupleVec, TupleVec)) -> bool {
             let (ray, aabb) = gen_ray_to_aabb(data);
-            ray.clip_aabb(&aabb).is_some()
+            ray.intersects_aabb(&aabb).is_some()
         }
     }
 }

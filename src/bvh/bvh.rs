@@ -200,23 +200,19 @@ impl BVHNode {
                 ref child_r_aabb,
                 child_r_index,
             } => {
-                let left_clip = ray.clip_aabb(child_l_aabb);
-                let right_clip = ray.clip_aabb(child_r_aabb);
+                let left_clip = ray.intersects_aabb(child_l_aabb);
+                let right_clip = ray.intersects_aabb(child_r_aabb);
 
                 match (left_clip, right_clip) {
-                    (Some((l_min, l_max)), Some((r_min, r_max))) => {
-                        println!("Both: l: {:?}; r: {:?}", left_clip, right_clip);
-
+                    (Some(l_min), Some(r_min)) => {
                         let (
                             first_child_index,
-                            first_child_max,
                             second_child_index,
                             second_child_min,
-                            second_child_max,
                         ) = if l_min < r_min {
-                            (child_l_index, l_max, child_r_index, r_min, r_max)
+                            (child_l_index, child_r_index, r_min)
                         } else {
-                            (child_r_index, r_max, child_l_index, l_min, l_max)
+                            (child_r_index, child_l_index, l_min)
                         };
 
                         let first_intersection = BVHNode::traverse_recursive(
@@ -225,7 +221,7 @@ impl BVHNode {
                             ray,
                             start,
                             shapes,
-                            first_child_max.min(max_distance),
+                            max_distance,
                         );
                         let first_distance = first_intersection
                             .as_ref()
@@ -239,7 +235,7 @@ impl BVHNode {
                                 ray,
                                 start,
                                 shapes,
-                                first_distance.min(max_distance).min(second_child_max),
+                                first_distance.min(max_distance),
                             );
                             let second_distance = second_intersection
                                 .as_ref()
@@ -255,21 +251,21 @@ impl BVHNode {
                             first_intersection
                         }
                     }
-                    (Some((_, clip_max)), None) => BVHNode::traverse_recursive(
+                    (Some(_), None) => BVHNode::traverse_recursive(
                         nodes,
                         child_l_index,
                         ray,
                         start,
                         shapes,
-                        max_distance.min(clip_max),
+                        max_distance,
                     ),
-                    (None, Some((_, clip_max))) => BVHNode::traverse_recursive(
+                    (None, Some(_)) => BVHNode::traverse_recursive(
                         nodes,
                         child_r_index,
                         ray,
                         start,
                         shapes,
-                        max_distance.min(clip_max),
+                        max_distance,
                     ),
                     (None, None) => None,
                 }
