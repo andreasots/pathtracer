@@ -4,7 +4,5 @@
 //!
 
 mod bvh_impl;
-mod optimization;
 
 pub use self::bvh_impl::*;
-pub use self::optimization::*;

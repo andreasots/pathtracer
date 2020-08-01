@@ -69,12 +69,6 @@
 //!
 
 #![deny(missing_docs)]
-#![cfg_attr(feature = "bench", feature(test))]
-
-#[cfg(all(feature = "bench", test))]
-extern crate test;
-
-pub use nalgebra;
 
 /// A minimal floating value used as a lower bound.
 /// TODO: replace by/add ULPS/relative float comparison methods.
