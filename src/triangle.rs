@@ -1,7 +1,7 @@
 use approx::relative_eq;
 use nalgebra::{Point2, Point3, Vector3};
 
-use crate::bvh::{Ray, Bounded, AABB, Distance, Intersect};
+use crate::bvh::{Bounded, Distance, Intersect, Ray, AABB};
 
 #[derive(Copy, Clone, Debug)]
 pub struct Triangle {

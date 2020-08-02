@@ -1,4 +1,4 @@
-use crate::bvh::{BVH, Ray};
+use crate::bvh::{Ray, BVH};
 use crate::material::{Material, D65};
 use crate::triangle::Triangle;
 use anyhow::{Context, Error};

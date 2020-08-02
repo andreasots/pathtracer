@@ -79,9 +79,9 @@ mod bvh;
 mod ray;
 mod utils;
 
-pub use aabb::{AABB, Bounded};
+pub use aabb::{Bounded, AABB};
+pub use bvh::{Distance, Intersect, BVH};
 pub use ray::Ray;
-pub use bvh::{BVH, Intersect, Distance};
 
 #[cfg(test)]
 mod testbase;

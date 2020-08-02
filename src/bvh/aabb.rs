@@ -355,8 +355,8 @@ impl Default for AABB {
 
 #[cfg(test)]
 mod tests {
-    use crate::bvh::{AABB, EPSILON};
     use crate::bvh::testbase::{tuple_to_point, TupleVec};
+    use crate::bvh::{AABB, EPSILON};
 
     use nalgebra::Vector3;
     use quickcheck::quickcheck;

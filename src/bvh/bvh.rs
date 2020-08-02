@@ -4,8 +4,8 @@
 //! [`BVHNode`]: struct.BVHNode.html
 //!
 
-use crate::bvh::{EPSILON, Bounded, AABB, Ray};
 use crate::bvh::utils::{concatenate_vectors, joint_aabb_of_shapes, Bucket};
+use crate::bvh::{Bounded, Ray, AABB, EPSILON};
 use std::f32;
 
 pub trait Distance {
@@ -17,7 +17,6 @@ pub trait Intersect {
 
     fn intersect(&self, ray: &Ray, max_distance: f32) -> Option<Self::Intersection>;
 }
-
 
 /// The [`BVHNode`] enum that describes a node in a [`BVH`].
 /// It's either a leaf node and references a shape (by holding its index)
@@ -213,15 +212,12 @@ impl BVHNode {
 
                 match (left_clip, right_clip) {
                     (Some(l_min), Some(r_min)) => {
-                        let (
-                            first_child_index,
-                            second_child_index,
-                            second_child_min,
-                        ) = if l_min < r_min {
-                            (child_l_index, child_r_index, r_min)
-                        } else {
-                            (child_r_index, child_l_index, l_min)
-                        };
+                        let (first_child_index, second_child_index, second_child_min) =
+                            if l_min < r_min {
+                                (child_l_index, child_r_index, r_min)
+                            } else {
+                                (child_r_index, child_l_index, l_min)
+                            };
 
                         let first_intersection = BVHNode::traverse_recursive(
                             nodes,

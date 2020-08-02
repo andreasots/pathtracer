@@ -75,8 +75,8 @@ impl Ray {
 
 #[cfg(test)]
 mod tests {
-    use crate::bvh::{AABB, Ray};
     use crate::bvh::testbase::{tuple_to_point, TupleVec};
+    use crate::bvh::{Ray, AABB};
 
     use quickcheck::quickcheck;
 
