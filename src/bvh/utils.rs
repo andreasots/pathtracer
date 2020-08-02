@@ -1,6 +1,6 @@
 //! Utilities module.
 
-use crate::bvh::aabb::{Bounded, AABB};
+use crate::bvh::{Bounded, AABB};
 
 /// Concatenates the list of vectors into a single vector.
 /// Drains the elements from the source `vectors`.

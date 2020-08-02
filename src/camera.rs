@@ -1,4 +1,4 @@
-use crate::bvh::ray::Ray;
+use crate::bvh::Ray;
 use nalgebra::{Point3, Vector3};
 
 pub struct Camera {

@@ -74,11 +74,14 @@
 /// TODO: replace by/add ULPS/relative float comparison methods.
 pub const EPSILON: f32 = 0.00001;
 
-pub mod aabb;
-pub mod bounding_hierarchy;
-pub mod bvh;
-pub mod ray;
+mod aabb;
+mod bvh;
+mod ray;
 mod utils;
+
+pub use aabb::{AABB, Bounded};
+pub use ray::Ray;
+pub use bvh::{BVH, Intersect, Distance};
 
 #[cfg(test)]
 mod testbase;

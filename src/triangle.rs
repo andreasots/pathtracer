@@ -1,9 +1,7 @@
-use crate::bvh::ray::Ray;
 use approx::relative_eq;
 use nalgebra::{Point2, Point3, Vector3};
 
-use crate::bvh::aabb::{Bounded, AABB};
-use crate::bvh::bounding_hierarchy::{Distance, Intersect};
+use crate::bvh::{Ray, Bounded, AABB, Distance, Intersect};
 
 #[derive(Copy, Clone, Debug)]
 pub struct Triangle {
@@ -149,8 +147,7 @@ impl Bounded for Triangle {
 #[cfg(test)]
 mod test {
     use super::Triangle;
-    use crate::bvh::bounding_hierarchy::Intersect;
-    use crate::bvh::ray::Ray;
+    use crate::bvh::{Intersect, Ray};
     use nalgebra::{Point3, Vector3};
 
     #[test]

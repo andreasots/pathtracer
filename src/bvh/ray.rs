@@ -1,7 +1,7 @@
 //! This module defines a Ray structure and intersection algorithms
 //! for axis aligned bounding boxes and triangles.
 
-use crate::bvh::aabb::AABB;
+use crate::bvh::AABB;
 use nalgebra::{Point3, Vector3};
 
 /// A struct which defines a ray and some of its cached values.
@@ -75,8 +75,7 @@ impl Ray {
 
 #[cfg(test)]
 mod tests {
-    use crate::bvh::aabb::AABB;
-    use crate::bvh::ray::Ray;
+    use crate::bvh::{AABB, Ray};
     use crate::bvh::testbase::{tuple_to_point, TupleVec};
 
     use quickcheck::quickcheck;

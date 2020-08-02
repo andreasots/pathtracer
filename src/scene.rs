@@ -1,5 +1,4 @@
-use crate::bvh::bvh::BVH;
-use crate::bvh::ray::Ray;
+use crate::bvh::{BVH, Ray};
 use crate::material::{Material, D65};
 use crate::triangle::Triangle;
 use anyhow::{Context, Error};

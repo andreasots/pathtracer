@@ -4,12 +4,20 @@
 //! [`BVHNode`]: struct.BVHNode.html
 //!
 
-use crate::bvh::aabb::{Bounded, AABB};
-use crate::bvh::bounding_hierarchy::{Distance, Intersect};
-use crate::bvh::ray::Ray;
+use crate::bvh::{EPSILON, Bounded, AABB, Ray};
 use crate::bvh::utils::{concatenate_vectors, joint_aabb_of_shapes, Bucket};
-use crate::bvh::EPSILON;
 use std::f32;
+
+pub trait Distance {
+    fn distance(&self) -> f32;
+}
+
+pub trait Intersect {
+    type Intersection: Distance;
+
+    fn intersect(&self, ray: &Ray, max_distance: f32) -> Option<Self::Intersection>;
+}
+
 
 /// The [`BVHNode`] enum that describes a node in a [`BVH`].
 /// It's either a leaf node and references a shape (by holding its index)

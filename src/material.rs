@@ -1,4 +1,4 @@
-use crate::bvh::ray::Ray;
+use crate::bvh::Ray;
 use crate::color::{Color, SRGB, XYZ};
 use crate::distributions::CosineWeightedHemisphere;
 use crate::scene::Scene;
