@@ -41,7 +41,7 @@ impl Color<SRGB> {
     pub fn reflectance_at(&self, wavelength: f32) -> f32 {
         const TABLE: &[[f32; 3]] = &include!(concat!(env!("OUT_DIR"), "/srgb2reflectance.rs"));
 
-        let offset = wavelength * 1e9 - 360.0;
+        let offset = wavelength - 360.0;
         let index = offset.floor();
         let alpha = offset - index;
         let index = index as usize;
@@ -87,8 +87,6 @@ impl Color<XYZ> {
                         .powi(2))
                 .exp()
         }
-
-        let wavelength = wavelength * 1e9;
 
         Self::xyz(
             gauss(wavelength, 0.362, 442.0, 0.0624, 0.0374)

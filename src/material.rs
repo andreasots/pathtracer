@@ -122,7 +122,7 @@ impl D65 {
     pub fn sample(&self, wavelength: f32) -> f32 {
         const TABLE: &[f32] = &include!(concat!(env!("OUT_DIR"), "/d65.rs"));
 
-        let offset = (wavelength * 1e9).floor() - 300.0 as f32;
+        let offset = wavelength.floor() - 300.0 as f32;
         let index = offset.floor();
         let alpha = offset - index;
         let index = index as usize;

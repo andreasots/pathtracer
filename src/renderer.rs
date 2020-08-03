@@ -199,6 +199,7 @@ pub async fn renderer(
     let mut swap_chain = device.create_swap_chain(&surface, &swap_chain_descriptor);
 
     let mut is_done = done.load(Ordering::Acquire);
+    let mut active = true;
 
     let mut vertex_buffer = device.create_buffer_with_data(
         bytemuck::cast_slice(&Vertex::rectangle(1.0, 1.0)),
@@ -251,8 +252,14 @@ pub async fn renderer(
             }
             _ => (),
         },
+        Event::WindowEvent {
+            event: WindowEvent::Focused(focused),
+            ..
+        } => {
+            active = focused;
+        }
         Event::MainEventsCleared => {
-            if !is_done {
+            if active && !is_done {
                 window.request_redraw();
             }
             is_done = done.load(Ordering::Acquire);

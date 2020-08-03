@@ -1,6 +1,6 @@
 use crate::bvh::{Ray, BVH};
 use crate::material::{Material, D65};
-use crate::triangle::Triangle;
+use crate::{hosek_wilkie::HosekWilkieSkyModel, triangle::Triangle};
 use anyhow::{Context, Error};
 use nalgebra::{Matrix4, Point2, Point3, Vector3, Vector4};
 use obj::{IndexTuple, Obj, ObjMaterial};
@@ -69,13 +69,62 @@ struct SceneFile {
     camera: Camera,
     #[serde(default)]
     sky: Sky,
+    #[serde(default)]
     meshes: Vec<Mesh>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Default)]
-#[serde(default)]
-struct Sky {
-    power: f32,
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(untagged)]
+enum Sky {
+    D65 {
+        power: f32,
+    },
+    HosekWilkie {
+        atmospheric_turbidity: f32,
+        ground_albedo: f32,
+        zenith_direction: [f32; 3],
+        sun_direction: [f32; 3],
+    }
+}
+
+impl Default for Sky {
+    fn default() -> Self {
+        Self::D65 { power: 0.0 }
+    }
+}
+
+enum InitialisedSky {
+    D65 {
+        power: f32,
+    },
+    HosekWilkie {
+        model: HosekWilkieSkyModel,
+        zenith_direction: Vector3<f32>,
+        sun_direction: Vector3<f32>,
+    }
+}
+
+impl InitialisedSky {
+    fn from_sky(sky: Sky, transform: &Matrix4<f32>) -> Self {
+        match sky {
+            Sky::D65 { power } => Self::D65 { power },
+            Sky::HosekWilkie { atmospheric_turbidity, ground_albedo, zenith_direction, sun_direction } => {
+                let zenith_direction = transform.transform_vector(&Vector3::from(zenith_direction)).normalize();
+                let sun_direction = transform.transform_vector(&Vector3::from(sun_direction)).normalize();
+                let solar_elevation = zenith_direction.dot(&sun_direction).asin();
+
+                assert!(solar_elevation > 0.0);
+                println!("solar elevation: {:7.4}°", solar_elevation.to_degrees());
+                let model = HosekWilkieSkyModel::new(solar_elevation, atmospheric_turbidity, ground_albedo);
+
+                Self::HosekWilkie {
+                    model,
+                    zenith_direction,
+                    sun_direction,
+                }
+            }
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Copy, Clone)]
@@ -142,7 +191,7 @@ pub struct Scene {
     bvh: BVH,
     triangles: Vec<Triangle>,
     materials: Vec<Material>,
-    sky: Sky,
+    sky: InitialisedSky,
 }
 
 impl Scene {
@@ -159,12 +208,12 @@ impl Scene {
         let mut triangles = vec![];
         let mut materials = vec![Material::default()];
 
-        let camera_matrix = scene.camera.transform.into_matrix();
+        let camera_transform = scene.camera.transform.into_matrix();
 
         for mesh in scene.meshes {
             println!("Loading {:?}", mesh.path);
 
-            let transform = Matrix4::from(mesh.transform) * camera_matrix;
+            let transform = Matrix4::from(mesh.transform) * camera_transform;
 
             let mesh_path = path.with_file_name(&mesh.path);
             let mut mesh = Obj::load(&mesh_path).context("failed to load the mesh")?;
@@ -235,7 +284,7 @@ impl Scene {
             bvh,
             triangles,
             materials,
-            sky: scene.sky,
+            sky: InitialisedSky::from_sky(scene.sky, &camera_transform),
         })
     }
 
@@ -265,7 +314,26 @@ impl Scene {
                 depth,
             )
         } else {
-            D65.sample4(wavelengths) * self.sky.power
+            match self.sky {
+                InitialisedSky::D65 { power } if power == 0.0 => Vector4::from_element(0.0),
+                InitialisedSky::D65 { power } => D65.sample4(wavelengths) * power,
+                InitialisedSky::HosekWilkie { model , zenith_direction, sun_direction } => {
+                    let cos_theta = ray.direction.dot(&zenith_direction);
+                    if cos_theta > 0.0 {
+                        let theta = cos_theta.min(1.0).acos();
+                        let gamma = ray.direction.dot(&sun_direction).min(1.0).max(-1.0).acos();
+
+                        0.0078125 * Vector4::new(
+                            model.solar_radiance(theta, gamma, wavelengths[0]),
+                            model.solar_radiance(theta, gamma, wavelengths[1]),
+                            model.solar_radiance(theta, gamma, wavelengths[2]),
+                            model.solar_radiance(theta, gamma, wavelengths[3]),
+                        )
+                    } else {
+                        Vector4::from_element(0.0)
+                    }
+                }
+            }
         }
     }
 }

@@ -13,13 +13,14 @@ mod bvh;
 mod camera;
 mod color;
 mod distributions;
+mod hosek_wilkie;
 mod material;
 mod renderer;
 mod scene;
 mod triangle;
 
-const MIN_WAVELENGTH: f32 = 360e-9;
-const MAX_WAVELENGTH: f32 = 830e-9;
+const MIN_WAVELENGTH: f32 = 360.0;
+const MAX_WAVELENGTH: f32 = 830.0;
 
 const TILE_SIZE: usize = 32;
 
@@ -34,9 +35,12 @@ fn main() -> Result<(), Error> {
     let (width, height) = scene.camera.resolution;
 
     let mut buffer = Vec::with_capacity(4 * width * height);
-    let uninitialized_buffer_color = {
+    let uninitialized_buffer_color = loop {
         let wavelength = rand::thread_rng().sample(Uniform::new(MIN_WAVELENGTH, MAX_WAVELENGTH));
-        Color::from_wavelength(wavelength)
+        let color = Color::from_wavelength(wavelength);
+        if color.y() > 0.1 {
+            break color;
+        }
     };
     for _ in 0..height {
         for _ in 0..width {
