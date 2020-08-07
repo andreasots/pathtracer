@@ -4,7 +4,7 @@ This source is published under the following 3-clause BSD license.
 Copyright (c) 2012 - 2013, Lukas Hosek and Alexander Wilkie
 All rights reserved.
 
-Redistribution and use in source and binary forms, with or without 
+Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
     * Redistributions of source code must retain the above copyright
@@ -12,8 +12,8 @@ modification, are permitted provided that the following conditions are met:
     * Redistributions in binary form must reproduce the above copyright
       notice, this list of conditions and the following disclaimer in the
       documentation and/or other materials provided with the distribution.
-    * None of the names of the contributors may be used to endorse or promote 
-      products derived from this software without specific prior written 
+    * None of the names of the contributors may be used to endorse or promote
+      products derived from this software without specific prior written
       permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
@@ -28,7 +28,9 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#[derive(Copy, Clone)]
+#![allow(clippy::excessive_precision)]
+
+#[derive(PartialEq, Copy, Clone, Debug)]
 pub struct HosekWilkieSkyModel {
     configs: [[f32; 9]; 11],
     radiances: [f32; 11],
@@ -219,23 +221,29 @@ impl HosekWilkieSkyModel {
                     * elev_matrix[3]
                 + 5.0 * (1.0 - solar_elevation) * solar_elevation.powi(4) * elev_matrix[4]
                 + solar_elevation.powi(5) * elev_matrix[5]);
-        return res;
+        res
     }
 
-    fn get_radiance_internal(configuration: &[f32; 9], theta: f32, gamma: f32) -> f32 {
+    fn get_radiance_internal(
+        configuration: &[f32; 9],
+        theta: f32,
+        cos_theta: f32,
+        gamma: f32,
+        cos_gamma: f32,
+    ) -> f32 {
         let exp_m = (configuration[4] * gamma).exp();
-        let ray_m = gamma.cos().powi(2);
-        let mie_m = (1.0 + gamma.cos().powi(2))
-            / (1.0 + configuration[8] * configuration[8] - 2.0 * configuration[8] * gamma.cos())
+        let ray_m = cos_gamma.powi(2);
+        let mie_m = (1.0 + cos_gamma.powi(2))
+            / (1.0 + configuration[8] * configuration[8] - 2.0 * configuration[8] * cos_gamma)
                 .powf(1.5);
-        let zenith: f32 = theta.cos().sqrt();
+        let zenith: f32 = cos_theta.sqrt();
 
-        return (1.0 + configuration[0] * (configuration[1] / (theta.cos() + 0.01)).exp())
+        (1.0 + configuration[0] * (configuration[1] / (cos_theta + 0.01)).exp())
             * (configuration[2]
                 + configuration[3] * exp_m
                 + configuration[5] * ray_m
                 + configuration[6] * mie_m
-                + configuration[7] * zenith);
+                + configuration[7] * zenith)
     }
 
     pub fn new(solar_elevation: f32, atmospheric_turbidity: f32, ground_albedo: f32) -> Self {
@@ -243,7 +251,7 @@ impl HosekWilkieSkyModel {
             configs: [[0.0; 9]; 11],
             radiances: [0.0; 11],
             turbidity: atmospheric_turbidity,
-            solar_radius: 0.51 * (std::f32::consts::PI / 180.0) / 2.0,
+            solar_radius: 0.51f32.to_radians() / 2.0,
             emission_correction_factor_sky: [1.0; 11],
             emission_correction_factor_sun: [1.0; 11],
         };
@@ -262,97 +270,49 @@ impl HosekWilkieSkyModel {
                 solar_elevation,
             );
         }
-        return state;
+        
+        state
     }
 
-    pub fn alien_world(
-        solar_elevation: f32,
-        solar_intensity: f32,
-        solar_surface_temperature_kelvin: f32,
-        atmospheric_turbidity: f32,
-        ground_albedo: f32,
-    ) -> Self {
-        const BLACKBODY_SCALING_FACTOR: f32 = 3.19992 * 10E-11;
-        const ORIGINAL_SOLAR_RADIANCE_TABLE: [f32; 11] = [
-            7500.0, 12500.0, 21127.5, 26760.5, 30663.7, 27825.0, 25503.8, 25134.2, 23212.1,
-            21526.7, 19870.8,
-        ];
-
-        fn blackbody_dd_value(temperature: f32, lambda: f32) -> f32 {
-            3.74177e-17 / lambda.powi(5)
-                * (1.0 / ((0.0143878 / (lambda * temperature)).exp() - 1.0))
+    pub fn radiance(
+        &self,
+        theta: f32,
+        cos_theta: f32,
+        gamma: f32,
+        cos_gamma: f32,
+        wavelength: f32,
+    ) -> f32 {
+        let low_wl = ((wavelength - 320.0) / 40.0) as usize;
+        if low_wl >= 11 {
+            return 0.0;
         }
 
-        let mut state = Self {
-            turbidity: atmospheric_turbidity,
-
-            configs: [[0.0; 9]; 11],
-            radiances: [0.0; 11],
-            solar_radius: 0.0,
-            emission_correction_factor_sky: [0.0; 11],
-            emission_correction_factor_sun: [0.0; 11],
-        };
-        for wl in 0..11 {
-            state.configs[wl] = Self::cook_configuration(
-                &DATASETS[wl],
-                atmospheric_turbidity,
-                ground_albedo,
-                solar_elevation,
-            );
-            state.radiances[wl] = Self::cook_radiance_configuration(
-                &DATASETS_RAD[wl],
-                atmospheric_turbidity,
-                ground_albedo,
-                solar_elevation,
-            );
-            let owl: f32 = (320.0 + 40.0 * wl as f32) * 10E-10;
-            let osr: f32 = ORIGINAL_SOLAR_RADIANCE_TABLE[wl];
-            let nsr: f32 = blackbody_dd_value(solar_surface_temperature_kelvin, owl)
-                * BLACKBODY_SCALING_FACTOR;
-            state.emission_correction_factor_sun[wl] = nsr / osr;
-        }
-        let correction_factor: f32 = state.emission_correction_factor_sun[2..11]
-            .iter()
-            .copied()
-            .sum();
-        let ratio: f32 = correction_factor / 9.0;
-        state.solar_radius =
-            solar_intensity.sqrt() * (0.51 * (std::f32::consts::PI / 180.0) / 2.0) / ratio.sqrt();
-        for i_0 in 0..11 {
-            state.emission_correction_factor_sky[i_0 as usize] =
-                solar_intensity * state.emission_correction_factor_sun[i_0 as usize] / ratio;
-        }
-        return state;
-    }
-
-    pub fn radiance(&self, theta: f32, gamma: f32, wavelength: f32) -> f32 {
-        let low_wl: i32 = ((wavelength - 320.0) / 40.0) as i32;
-        if low_wl < 0 as i32 || low_wl >= 11 as i32 {
-            return 0.0f32 as f32;
-        }
-        let interp: f32 = ((wavelength - 320.0) / 40.0) % 1.0;
-        let val_low: f32 =
-            Self::get_radiance_internal(&self.configs[low_wl as usize], theta, gamma)
-                * self.radiances[low_wl as usize]
-                * self.emission_correction_factor_sky[low_wl as usize];
+        let interp = ((wavelength - 320.0) / 40.0) % 1.0;
+        let val_low =
+            Self::get_radiance_internal(&self.configs[low_wl], theta, cos_theta, gamma, cos_gamma)
+                * self.radiances[low_wl]
+                * self.emission_correction_factor_sky[low_wl];
         if interp < 1e-6 {
             return val_low;
         }
-        let mut result: f32 = (1.0 - interp) * val_low;
-        if (low_wl + 1 as i32) < 11 as i32 {
+        let mut result = (1.0 - interp) * val_low;
+        if (low_wl + 1) < 11 {
             result += interp
                 * Self::get_radiance_internal(
-                    &self.configs[(low_wl + 1 as i32) as usize],
+                    &self.configs[low_wl + 1],
                     theta,
+                    cos_theta,
                     gamma,
+                    cos_gamma,
                 )
-                * self.radiances[(low_wl + 1 as i32) as usize]
-                * self.emission_correction_factor_sky[(low_wl + 1 as i32) as usize]
+                * self.radiances[low_wl + 1]
+                * self.emission_correction_factor_sky[low_wl + 1]
         }
-        return result;
+
+        result
     }
 
-    fn sr_internal(&self, turbidity: i32, wl: i32, elevation: f32) -> f32 {
+    fn sr_internal(&self, turbidity: usize, wl: usize, elevation: f32) -> f32 {
         const PIECES: usize = 45;
         const ORDER: usize = 4;
 
@@ -360,17 +320,19 @@ impl HosekWilkieSkyModel {
             ((2.0 * elevation / std::f32::consts::PI).cbrt() * PIECES as f32) as usize,
             44,
         );
-        let break_x: f32 = (pos as f32 / PIECES as f32).powi(3) * std::f32::consts::FRAC_PI_2;
-        let coefs = &SOLAR_DATASETS[wl as usize];
-        let coefs_offset = ORDER * PIECES * turbidity as usize + ORDER * (pos + 1) - 1;
-        let mut res: f32 = 0.0;
-        let x: f32 = elevation - break_x;
-        let mut x_exp: f32 = 1.0;
+        let break_x = (pos as f32 / PIECES as f32).powi(3) * std::f32::consts::FRAC_PI_2;
+        let coefs = &SOLAR_DATASETS[wl];
+        let coefs_offset = ORDER * PIECES * turbidity + ORDER * (pos + 1) - 1;
+        let mut res = 0.0;
+        let x = elevation - break_x;
+        let mut x_exp = 1.0;
+        
         for i in 0..ORDER {
             res += x_exp * coefs[coefs_offset - i];
             x_exp *= x;
         }
-        return res * self.emission_correction_factor_sun[wl as usize];
+
+        res * self.emission_correction_factor_sun[wl]
     }
 
     fn solar_radiance_internal2(&self, wavelength: f32, elevation: f32, gamma: f32) -> f32 {
@@ -381,59 +343,137 @@ impl HosekWilkieSkyModel {
                 && self.turbidity <= 10.0
         );
 
-        let mut turb_low = self.turbidity as i32 - 1;
-        let mut turb_frac = self.turbidity - (turb_low + 1) as f32;
-        if turb_low == 9 {
-            turb_low = 8;
-            turb_frac = 1.0
-        }
-        let mut wl_low: i32 = ((wavelength - 320.0) / 40.0) as i32;
-        let mut wl_frac: f32 = (wavelength % 40.0) / 40.0;
-        if wl_low == 10 as i32 {
-            wl_low = 9 as i32;
-            wl_frac = 1.0
-        }
-        let mut direct_radiance: f32 = (1.0 - turb_frac)
+        let turb_low = std::cmp::min(self.turbidity as usize - 1, 8);
+        let turb_frac = self.turbidity - (turb_low + 1) as f32;
+        let wl_low = std::cmp::min(((wavelength - 320.0) / 40.0) as usize, 9);
+        let wl_frac = (wavelength - 320.0 - wl_low as f32 * 40.0) / 40.0;
+
+        let direct_radiance = (1.0 - turb_frac)
             * ((1.0 - wl_frac) * self.sr_internal(turb_low, wl_low, elevation)
-                + wl_frac * self.sr_internal(turb_low, wl_low + 1 as i32, elevation))
+                + wl_frac * self.sr_internal(turb_low, wl_low + 1, elevation))
             + turb_frac
-                * ((1.0 - wl_frac) * self.sr_internal(turb_low + 1 as i32, wl_low, elevation)
-                    + wl_frac
-                        * self.sr_internal(turb_low + 1 as i32, wl_low + 1 as i32, elevation));
-        let mut ld_coefficient: [f32; 6] = [0.; 6];
+                * ((1.0 - wl_frac) * self.sr_internal(turb_low + 1, wl_low, elevation)
+                    + wl_frac * self.sr_internal(turb_low + 1, wl_low + 1, elevation));
+        let mut ld_coefficient = [0.0; 6];
         for i in 0..6 {
-            ld_coefficient[i] = (1.0 - wl_frac) * LIMB_DARKENING_DATASETS[wl_low as usize][i]
-                + wl_frac * LIMB_DARKENING_DATASETS[(wl_low + 1) as usize][i];
+            ld_coefficient[i] = (1.0 - wl_frac) * LIMB_DARKENING_DATASETS[wl_low][i]
+                + wl_frac * LIMB_DARKENING_DATASETS[wl_low + 1][i];
         }
-        let sol_rad_sin: f32 = self.solar_radius.sin();
-        let ar2: f32 = 1 as i32 as f32 / (sol_rad_sin * sol_rad_sin);
-        let singamma: f32 = gamma.sin();
-        let mut sc2: f32 = 1.0 - ar2 * singamma * singamma;
-        if sc2 < 0.0 {
-            sc2 = 0.0
-        }
-        let sample_cosine: f32 = sc2.sqrt();
-        let darkening_factor: f32 = ld_coefficient[0]
+        let sol_rad_sin = self.solar_radius.sin();
+        let ar2 = 1.0 / (sol_rad_sin * sol_rad_sin);
+        let singamma = gamma.sin();
+        let sample_cosine = (1.0 - ar2 * singamma * singamma).max(0.0).sqrt();
+        let darkening_factor = ld_coefficient[0]
             + ld_coefficient[1] * sample_cosine
             + ld_coefficient[2] * sample_cosine.powi(2)
             + ld_coefficient[3] * sample_cosine.powi(3)
             + ld_coefficient[4] * sample_cosine.powi(4)
             + ld_coefficient[5] * sample_cosine.powi(5);
-        direct_radiance *= darkening_factor;
-        return direct_radiance;
+
+        direct_radiance * darkening_factor
     }
 
-    pub fn solar_radiance(&self, theta: f32, gamma: f32, wavelength: f32) -> f32 {
+    pub fn solar_radiance(
+        &self,
+        theta: f32,
+        cos_theta: f32,
+        gamma: f32,
+        cos_gamma: f32,
+        wavelength: f32,
+    ) -> f32 {
         if wavelength < 320.0 || wavelength > 720.0 {
             return 0.0;
         }
 
         let direct_radiance =
             self.solar_radiance_internal2(wavelength, std::f32::consts::FRAC_PI_2 - theta, gamma);
-        assert!(!direct_radiance.is_nan(), "direct radiance is NaN: theta {} gamma {} wavelength {}", theta, gamma, wavelength);
-        let inscattered_radiance = self.radiance(theta, gamma, wavelength);
-        assert!(!inscattered_radiance.is_nan(), "inscattered radiance is NaN: theta {} gamma {} wavelength {}", theta, gamma, wavelength);
-        return direct_radiance + inscattered_radiance;
+        let inscattered_radiance = self.radiance(theta, cos_theta, gamma, cos_gamma, wavelength);
+
+        direct_radiance + inscattered_radiance
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::HosekWilkieSkyModel;
+    use approx::assert_relative_eq;
+    use proptest::prelude::*;
+
+    include!(concat!(env!("OUT_DIR"), "/ar_hosek_sky_model.rs"));
+
+    #[link(name = "hosek-wilkie")]
+    extern "C" {}
+
+    const EPSILON: f32 = 0.00001;
+    const MAX_RELATIVE: f32 = 0.0001;
+
+    proptest! {
+        #[test]
+        fn proptest_init(solar_elevation in 0.0..std::f32::consts::FRAC_PI_2, atmospheric_turbidity in 1.0f32..10.0, ground_albedo in 0.0f32..1.0) {
+            let actual = HosekWilkieSkyModel::new(solar_elevation, atmospheric_turbidity, ground_albedo);
+            let expected = {
+                let ptr = unsafe { arhosekskymodelstate_alloc_init(solar_elevation as f64, atmospheric_turbidity as f64, ground_albedo as f64) };
+                let val = unsafe { std::ptr::read(ptr) };
+                unsafe { arhosekskymodelstate_free(ptr) };
+                val
+            };
+
+            assert_relative_eq!(actual.turbidity, expected.turbidity as f32, epsilon = EPSILON, max_relative = MAX_RELATIVE);
+            assert_relative_eq!(actual.solar_radius, expected.solar_radius as f32, epsilon = EPSILON, max_relative = MAX_RELATIVE);
+
+            for i in 0..11 {
+                for j in 0..9 {
+                    assert_relative_eq!(actual.configs[i][j], expected.configs[i][j] as f32, epsilon = EPSILON, max_relative = MAX_RELATIVE);
+                }
+                assert_relative_eq!(actual.radiances[i], expected.radiances[i] as f32, epsilon = EPSILON, max_relative = MAX_RELATIVE);
+                assert_relative_eq!(actual.emission_correction_factor_sky[i], expected.emission_correction_factor_sky[i] as f32, epsilon = EPSILON, max_relative = MAX_RELATIVE);
+                assert_relative_eq!(actual.emission_correction_factor_sun[i], expected.emission_correction_factor_sun[i] as f32, epsilon = EPSILON, max_relative = MAX_RELATIVE);
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_solar_radiance(
+                solar_elevation in 0.0..std::f32::consts::FRAC_PI_2,
+                atmospheric_turbidity in 1.0f32..10.0,
+                ground_albedo in 0.0f32..1.0,
+                theta in 0.0..std::f32::consts::FRAC_PI_2,
+                gamma in -std::f32::consts::FRAC_PI_2..std::f32::consts::FRAC_PI_2,
+                wavelength in 320.0f32..720.0
+        ) {
+            let actual = HosekWilkieSkyModel::new(solar_elevation, atmospheric_turbidity, ground_albedo).solar_radiance(theta, theta.cos(), gamma, gamma.cos(), wavelength);
+            let expected = {
+                let ptr = unsafe { arhosekskymodelstate_alloc_init(solar_elevation as f64, atmospheric_turbidity as f64, ground_albedo as f64) };
+                let val = unsafe { arhosekskymodel_solar_radiance(ptr, theta as f64, gamma as f64, wavelength as f64) };
+                unsafe { arhosekskymodelstate_free(ptr) };
+                val
+            };
+
+            assert_relative_eq!(actual, expected as f32, epsilon = EPSILON, max_relative = MAX_RELATIVE);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_radiance(
+                solar_elevation in 0.0..std::f32::consts::FRAC_PI_2,
+                atmospheric_turbidity in 1.0f32..10.0,
+                ground_albedo in 0.0f32..1.0,
+                theta in 0.0..std::f32::consts::FRAC_PI_2,
+                gamma in -std::f32::consts::FRAC_PI_2..std::f32::consts::FRAC_PI_2,
+                wavelength in 320.0f32..720.0
+        ) {
+            let actual = HosekWilkieSkyModel::new(solar_elevation, atmospheric_turbidity, ground_albedo).radiance(theta, theta.cos(), gamma, gamma.cos(), wavelength);
+            let expected = {
+                let ptr = unsafe { arhosekskymodelstate_alloc_init(solar_elevation as f64, atmospheric_turbidity as f64, ground_albedo as f64) };
+                let val = unsafe { arhosekskymodel_radiance(ptr, theta as f64, gamma as f64, wavelength as f64) };
+                unsafe { arhosekskymodelstate_free(ptr) };
+                val
+            };
+
+            assert_relative_eq!(actual, expected as f32, epsilon = EPSILON, max_relative = MAX_RELATIVE);
+        }
     }
 }
 
@@ -33578,49 +33618,16 @@ const SOLAR_DATASETS: [[f32; 1800]; 11] = [
     SOLAR_DATASET_720,
 ];
 
-const LIMB_DARKENING_DATASET_320: [f32; 6] =
-    [0.087657, 0.767174, 0.658123, -1.02953, 0.703297, -0.186735];
-
-const LIMB_DARKENING_DATASET_360: [f32; 6] =
-    [0.122953, 1.01278, 0.238687, -1.12208, 1.17087, -0.424947];
-
-const LIMB_DARKENING_DATASET_400: [f32; 6] =
-    [0.123511, 1.08444, -0.405598, 0.370629, -0.240567, 0.0674778];
-
-const LIMB_DARKENING_DATASET_440: [f32; 6] =
-    [0.158489, 1.23346, -0.875754, 0.857812, -0.484919, 0.110895];
-
-const LIMB_DARKENING_DATASET_480: [f32; 6] =
-    [0.198587, 1.30507, -1.25998, 1.49727, -1.04047, 0.299516];
-
-const LIMB_DARKENING_DATASET_520: [f32; 6] =
-    [0.23695, 1.29927, -1.28034, 1.37760, -0.85054, 0.21706];
-
-const LIMB_DARKENING_DATASET_560: [f32; 6] =
-    [0.26892, 1.34319, -1.58427, 1.91271, -1.31350, 0.37295];
-
-const LIMB_DARKENING_DATASET_600: [f32; 6] =
-    [0.299804, 1.36718, -1.80884, 2.29294, -1.60595, 0.454874];
-
-const LIMB_DARKENING_DATASET_640: [f32; 6] =
-    [0.33551, 1.30791, -1.79382, 2.44646, -1.89082, 0.594769];
-
-const LIMB_DARKENING_DATASET_680: [f32; 6] =
-    [0.364007, 1.27316, -1.73824, 2.28535, -1.70203, 0.517758];
-
-const LIMB_DARKENING_DATASET_720: [f32; 6] =
-    [0.389704, 1.2448, -1.69708, 2.14061, -1.51803, 0.440004];
-
 const LIMB_DARKENING_DATASETS: [[f32; 6]; 11] = [
-    LIMB_DARKENING_DATASET_320,
-    LIMB_DARKENING_DATASET_360,
-    LIMB_DARKENING_DATASET_400,
-    LIMB_DARKENING_DATASET_440,
-    LIMB_DARKENING_DATASET_480,
-    LIMB_DARKENING_DATASET_520,
-    LIMB_DARKENING_DATASET_560,
-    LIMB_DARKENING_DATASET_600,
-    LIMB_DARKENING_DATASET_640,
-    LIMB_DARKENING_DATASET_680,
-    LIMB_DARKENING_DATASET_720,
+    [0.087657, 0.767174, 0.658123, -1.02953, 0.703297, -0.186735],
+    [0.122953, 1.01278, 0.238687, -1.12208, 1.17087, -0.424947],
+    [0.123511, 1.08444, -0.405598, 0.370629, -0.240567, 0.0674778],
+    [0.158489, 1.23346, -0.875754, 0.857812, -0.484919, 0.110895],
+    [0.198587, 1.30507, -1.25998, 1.49727, -1.04047, 0.299516],
+    [0.23695, 1.29927, -1.28034, 1.37760, -0.85054, 0.21706],
+    [0.26892, 1.34319, -1.58427, 1.91271, -1.31350, 0.37295],
+    [0.299804, 1.36718, -1.80884, 2.29294, -1.60595, 0.454874],
+    [0.33551, 1.30791, -1.79382, 2.44646, -1.89082, 0.594769],
+    [0.364007, 1.27316, -1.73824, 2.28535, -1.70203, 0.517758],
+    [0.389704, 1.2448, -1.69708, 2.14061, -1.51803, 0.440004],
 ];

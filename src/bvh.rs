@@ -1,11 +1,121 @@
-//! This module defines [`BVH`] and [`BVHNode`] and functions for building and traversing it.
-//!
-//! [`BVH`]: struct.BVH.html
-//! [`BVHNode`]: struct.BVHNode.html
-//!
+/*
+    MIT License
 
-use crate::bvh::utils::{concatenate_vectors, joint_aabb_of_shapes, Bucket};
-use crate::bvh::{Bounded, Ray, AABB, EPSILON};
+    Copyright (c) 2016 Sven-Hendrik Haase
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+*/
+
+/// This is the [bvh](https://github.com/svenstaro/bvh) crate at the commit a16aaa560244f6470b1ca681cda2579d9ba2c74e
+/// but stripped down and heavily modified to suit better large scenes.
+
+const EPSILON: f32 = 0.00001;
+
+use nalgebra::{Point3, Vector3};
+
+#[derive(Debug, Copy, Clone)]
+pub struct AABB {
+    pub min: Point3<f32>,
+    pub max: Point3<f32>,
+}
+
+pub trait Bounded {
+    fn aabb(&self) -> AABB;
+}
+
+impl AABB {
+    pub fn with_bounds(min: Point3<f32>, max: Point3<f32>) -> AABB {
+        AABB { min, max }
+    }
+
+    pub fn empty() -> AABB {
+        AABB {
+            min: Point3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY),
+            max: Point3::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY),
+        }
+    }
+
+    pub fn join(&self, other: &AABB) -> AABB {
+        AABB::with_bounds(
+            Point3::new(
+                self.min.x.min(other.min.x),
+                self.min.y.min(other.min.y),
+                self.min.z.min(other.min.z),
+            ),
+            Point3::new(
+                self.max.x.max(other.max.x),
+                self.max.y.max(other.max.y),
+                self.max.z.max(other.max.z),
+            ),
+        )
+    }
+
+    pub fn join_mut(&mut self, other: &AABB) {
+        self.min = Point3::new(
+            self.min.x.min(other.min.x),
+            self.min.y.min(other.min.y),
+            self.min.z.min(other.min.z),
+        );
+        self.max = Point3::new(
+            self.max.x.max(other.max.x),
+            self.max.y.max(other.max.y),
+            self.max.z.max(other.max.z),
+        );
+    }
+
+    pub fn grow(&self, other: &Point3<f32>) -> AABB {
+        AABB::with_bounds(
+            Point3::new(
+                self.min.x.min(other.x),
+                self.min.y.min(other.y),
+                self.min.z.min(other.z),
+            ),
+            Point3::new(
+                self.max.x.max(other.x),
+                self.max.y.max(other.y),
+                self.max.z.max(other.z),
+            ),
+        )
+    }
+
+    pub fn size(&self) -> Vector3<f32> {
+        self.max - self.min
+    }
+
+    pub fn center(&self) -> Point3<f32> {
+        self.min + (self.size() / 2.0)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.min.x > self.max.x || self.min.y > self.max.y || self.min.z > self.max.z
+    }
+
+    pub fn surface_area(&self) -> f32 {
+        let size = self.size();
+        2.0 * (size.x * size.y + size.x * size.z + size.y * size.z)
+    }
+
+    pub fn largest_axis(&self) -> usize {
+        self.size().argmax().0
+    }
+}
+
 use std::f32;
 
 pub trait Distance {
@@ -18,50 +128,24 @@ pub trait Intersect {
     fn intersect(&self, ray: &Ray, max_distance: f32) -> Option<Self::Intersection>;
 }
 
-/// The [`BVHNode`] enum that describes a node in a [`BVH`].
-/// It's either a leaf node and references a shape (by holding its index)
-/// or a regular node that has two child nodes.
-/// The non-leaf node stores the [`AABB`]s of its children.
-///
-/// [`AABB`]: ../aabb/struct.AABB.html
-/// [`BVH`]: struct.BVH.html
-/// [`BVH`]: struct.BVHNode.html
-///
 #[derive(Debug, Copy, Clone)]
 pub enum BVHNode {
-    /// Leaf node.
     Leaf {
-        /// The shape contained in this leaf.
         shape_index: usize,
     },
-    /// Inner node.
     Node {
-        /// Index of the left subtree's root node.
         child_l_index: usize,
-
-        /// The convex hull of the shapes' `AABB`s in child_l.
         child_l_aabb: AABB,
-
-        /// Index of the right subtree's root node.
         child_r_index: usize,
-
-        /// The convex hull of the shapes' `AABB`s in child_r.
         child_r_aabb: AABB,
     },
 }
 
 impl BVHNode {
-    /// The build function sometimes needs to add nodes while their data is not available yet.
-    /// A dummy cerated by this function serves the purpose of being changed later on.
     fn create_dummy() -> BVHNode {
         BVHNode::Leaf { shape_index: 0 }
     }
 
-    /// Builds a [`BVHNode`] recursively using SAH partitioning.
-    /// Returns the index of the new node in the nodes vector.
-    ///
-    /// [`BVHNode`]: enum.BVHNode.html
-    ///
     pub fn build<T: Bounded>(
         shapes: &mut [T],
         indices: &[usize],
@@ -78,7 +162,7 @@ impl BVHNode {
             )
         }
 
-        let mut convex_hull = Default::default();
+        let mut convex_hull = (AABB::empty(), AABB::empty());
         for index in indices {
             convex_hull = grow_convex_hull(convex_hull, &shapes[*index].aabb());
         }
@@ -185,13 +269,6 @@ impl BVHNode {
         node_index
     }
 
-    /// Traverses the [`BVH`] recursively and returns all shapes whose [`AABB`] is
-    /// intersected by the given [`Ray`].
-    ///
-    /// [`AABB`]: ../aabb/struct.AABB.html
-    /// [`BVH`]: struct.BVH.html
-    /// [`Ray`]: ../ray/struct.Ray.html
-    ///
     pub fn traverse_recursive<'a, Shape: Intersect>(
         nodes: &[BVHNode],
         node_index: usize,
@@ -290,21 +367,11 @@ impl BVHNode {
     }
 }
 
-/// The [`BVH`] data structure. Contains the list of [`BVHNode`]s.
-///
-/// [`BVH`]: struct.BVH.html
-///
 pub struct BVH {
-    /// The list of nodes of the [`BVH`].Vec<&Shape>
-    ///
     pub nodes: Vec<BVHNode>,
 }
 
 impl BVH {
-    /// Creates a new [`BVH`] from the `shapes` slice.
-    ///
-    /// [`BVH`]: struct.BVH.html
-    ///
     pub fn build<Shape: Bounded>(shapes: &mut [Shape]) -> BVH {
         let indices = (0..shapes.len()).collect::<Vec<usize>>();
         let expected_node_count = shapes.len() * 2;
@@ -313,12 +380,6 @@ impl BVH {
         BVH { nodes }
     }
 
-    /// Traverses the [`BVH`].
-    /// Returns a subset of `shapes`, in which the [`AABB`]s of the elements were hit by `ray`.
-    ///
-    /// [`BVH`]: struct.BVH.html
-    /// [`AABB`]: ../aabb/struct.AABB.html
-    ///
     pub fn traverse<'a, Shape: Intersect>(
         &'a self,
         ray: &Ray,
@@ -327,4 +388,89 @@ impl BVH {
     ) -> Option<(&'a Shape, Shape::Intersection)> {
         BVHNode::traverse_recursive(&self.nodes, 0, ray, start, shapes, f32::INFINITY)
     }
+}
+
+#[derive(Debug)]
+pub struct Ray {
+    pub origin: Point3<f32>,
+    pub direction: Vector3<f32>,
+    pub inv_direction: Vector3<f32>,
+}
+
+impl Ray {
+    pub fn new(origin: Point3<f32>, direction: Vector3<f32>) -> Ray {
+        let direction = direction.normalize();
+        Ray {
+            origin,
+            direction,
+            inv_direction: Vector3::new(1.0 / direction.x, 1.0 / direction.y, 1.0 / direction.z),
+        }
+    }
+
+    /// Implementation of the algorithm described [here]
+    /// (https://tavianator.com/fast-branchless-raybounding-box-intersections/).
+    pub fn intersects_aabb(&self, aabb: &AABB) -> Option<f32> {
+        let t1 = (aabb.min - self.origin).component_mul(&self.inv_direction);
+        let t2 = (aabb.max - self.origin).component_mul(&self.inv_direction);
+
+        let tmin = t1[0].min(t2[0]);
+        let tmax = t1[0].max(t2[0]);
+
+        let tmin = tmin.max(t1[1].min(t2[1]));
+        let tmax = tmax.min(t1[1].max(t2[1]));
+
+        let tmin = tmin.max(t1[2].min(t2[2]));
+        let tmax = tmax.min(t1[2].max(t2[2]));
+
+        let tmin = tmin.max(0.0);
+
+        if tmax >= tmin {
+            Some(tmin)
+        } else {
+            None
+        }
+    }
+}
+
+pub fn concatenate_vectors<T: Sized>(vectors: &mut [Vec<T>]) -> Vec<T> {
+    let mut result = Vec::new();
+    for mut vector in vectors.iter_mut() {
+        result.append(&mut vector);
+    }
+    result
+}
+#[derive(Copy, Clone)]
+pub struct Bucket {
+    pub size: usize,
+    pub aabb: AABB,
+}
+
+impl Bucket {
+    pub fn empty() -> Bucket {
+        Bucket {
+            size: 0,
+            aabb: AABB::empty(),
+        }
+    }
+
+    pub fn add_aabb(&mut self, aabb: &AABB) {
+        self.size += 1;
+        self.aabb = self.aabb.join(aabb);
+    }
+
+    pub fn join_bucket(a: Bucket, b: &Bucket) -> Bucket {
+        Bucket {
+            size: a.size + b.size,
+            aabb: a.aabb.join(&b.aabb),
+        }
+    }
+}
+
+pub fn joint_aabb_of_shapes<Shape: Bounded>(indices: &[usize], shapes: &[Shape]) -> AABB {
+    let mut aabb = AABB::empty();
+    for index in indices {
+        let shape = &shapes[*index];
+        aabb.join_mut(&shape.aabb());
+    }
+    aabb
 }

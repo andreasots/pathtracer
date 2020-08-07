@@ -117,5 +117,24 @@ fn main() -> Result<(), Error> {
     )
     .context("failed to convert the D64 illuminant table")?;
 
+    cc::Build::new()
+        .file("src/hosek-wilkie/ArHosekSkyModel.c")
+        .compile("hosek-wilkie");
+
+    println!("cargo:rerun-if-changed=src/hosek-wilkie/ArHosekSkyModel.h");
+    let bindings = bindgen::Builder::default()
+        .header("src/hosek-wilkie/ArHosekSkyModel.h")
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+        .generate()
+        .expect(
+            "failed to generate bindings for the Hosek-Wilkie sky model reference implementation",
+        );
+
+    bindings
+        .write_to_file(base_dir.join("ar_hosek_sky_model.rs"))
+        .context(
+            "failed to write the bindings for the Hosek-Wilkie sky model reference implementation",
+        )?;
+
     Ok(())
 }

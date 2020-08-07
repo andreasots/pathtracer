@@ -113,6 +113,7 @@ impl Color<XYZ> {
 }
 
 impl From<Color<SRGB>> for Color<XYZ> {
+    #[allow(clippy::excessive_precision)]
     fn from(srgb: Color<SRGB>) -> Color<XYZ> {
         let srgb2xyz = Matrix3::new(
             0.41239080, 0.35758434, 0.18048079, 0.21263901, 0.71516868, 0.07219232, 0.01933082,

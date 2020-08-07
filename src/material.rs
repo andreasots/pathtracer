@@ -89,11 +89,11 @@ where
     pub fn sample(&self, u: f32, v: f32) -> P {
         match self {
             Texture::Texture(tex) => {
-                let w = tex.width();
-                let h = tex.height();
+                let width = tex.width();
+                let height = tex.height();
 
-                let x = (u.rem_euclid(1.0)) * w as f32;
-                let y = (1.0 - v.rem_euclid(1.0)) * h as f32;
+                let x = (u.rem_euclid(1.0)) * width as f32;
+                let y = (1.0 - v.rem_euclid(1.0)) * height as f32;
 
                 let x0 = x.floor() as u32;
                 let y0 = y.floor() as u32;
@@ -101,10 +101,10 @@ where
                 let t_x = x - x.floor();
                 let t_y = y - y.floor();
 
-                let p00 = tex[(x0.rem_euclid(w), y0.rem_euclid(h))];
-                let p10 = tex[((x0 + 1).rem_euclid(w), y0.rem_euclid(h))];
-                let p01 = tex[(x0.rem_euclid(w), (y0 + 1).rem_euclid(h))];
-                let p11 = tex[((x0 + 1).rem_euclid(w), (y0 + 1).rem_euclid(h))];
+                let p00 = tex[(x0.rem_euclid(width), y0.rem_euclid(height))];
+                let p10 = tex[((x0 + 1).rem_euclid(width), y0.rem_euclid(height))];
+                let p01 = tex[(x0.rem_euclid(width), (y0 + 1).rem_euclid(height))];
+                let p11 = tex[((x0 + 1).rem_euclid(width), (y0 + 1).rem_euclid(height))];
 
                 let p0 = p00 * (1.0 - t_x) + p10 * t_x;
                 let p1 = p01 * (1.0 - t_x) + p11 * t_x;

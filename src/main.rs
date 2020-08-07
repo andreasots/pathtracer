@@ -28,8 +28,7 @@ fn main() -> Result<(), Error> {
     simple_logger::init().context("failed to init logging")?;
 
     let scene_file_name = std::env::args_os()
-        .skip(1)
-        .next()
+        .nth(1)
         .context("expected scene file name")?;
     let scene = Scene::load(&scene_file_name).context("failed to load the scene")?;
     let (width, height) = scene.camera.resolution;

@@ -84,7 +84,7 @@ enum Sky {
         ground_albedo: f32,
         zenith_direction: [f32; 3],
         sun_direction: [f32; 3],
-    }
+    },
 }
 
 impl Default for Sky {
@@ -101,21 +101,31 @@ enum InitialisedSky {
         model: HosekWilkieSkyModel,
         zenith_direction: Vector3<f32>,
         sun_direction: Vector3<f32>,
-    }
+    },
 }
 
 impl InitialisedSky {
     fn from_sky(sky: Sky, transform: &Matrix4<f32>) -> Self {
         match sky {
             Sky::D65 { power } => Self::D65 { power },
-            Sky::HosekWilkie { atmospheric_turbidity, ground_albedo, zenith_direction, sun_direction } => {
-                let zenith_direction = transform.transform_vector(&Vector3::from(zenith_direction)).normalize();
-                let sun_direction = transform.transform_vector(&Vector3::from(sun_direction)).normalize();
+            Sky::HosekWilkie {
+                atmospheric_turbidity,
+                ground_albedo,
+                zenith_direction,
+                sun_direction,
+            } => {
+                let zenith_direction = transform
+                    .transform_vector(&Vector3::from(zenith_direction))
+                    .normalize();
+                let sun_direction = transform
+                    .transform_vector(&Vector3::from(sun_direction))
+                    .normalize();
                 let solar_elevation = zenith_direction.dot(&sun_direction).asin();
 
                 assert!(solar_elevation > 0.0);
                 println!("solar elevation: {:7.4}°", solar_elevation.to_degrees());
-                let model = HosekWilkieSkyModel::new(solar_elevation, atmospheric_turbidity, ground_albedo);
+                let model =
+                    HosekWilkieSkyModel::new(solar_elevation, atmospheric_turbidity, ground_albedo);
 
                 Self::HosekWilkie {
                     model,
@@ -317,17 +327,46 @@ impl Scene {
             match self.sky {
                 InitialisedSky::D65 { power } if power == 0.0 => Vector4::from_element(0.0),
                 InitialisedSky::D65 { power } => D65.sample4(wavelengths) * power,
-                InitialisedSky::HosekWilkie { model , zenith_direction, sun_direction } => {
+                InitialisedSky::HosekWilkie {
+                    model,
+                    zenith_direction,
+                    sun_direction,
+                } => {
                     let cos_theta = ray.direction.dot(&zenith_direction);
                     if cos_theta > 0.0 {
                         let theta = cos_theta.min(1.0).acos();
-                        let gamma = ray.direction.dot(&sun_direction).min(1.0).max(-1.0).acos();
+                        let cos_gamma = ray.direction.dot(&sun_direction);
+                        let gamma = cos_gamma.min(1.0).max(-1.0).acos();
 
-                        0.0078125 * Vector4::new(
-                            model.solar_radiance(theta, gamma, wavelengths[0]),
-                            model.solar_radiance(theta, gamma, wavelengths[1]),
-                            model.solar_radiance(theta, gamma, wavelengths[2]),
-                            model.solar_radiance(theta, gamma, wavelengths[3]),
+                        Vector4::new(
+                            model.solar_radiance(
+                                theta,
+                                cos_theta,
+                                gamma,
+                                cos_gamma,
+                                wavelengths[0],
+                            ),
+                            model.solar_radiance(
+                                theta,
+                                cos_theta,
+                                gamma,
+                                cos_gamma,
+                                wavelengths[1],
+                            ),
+                            model.solar_radiance(
+                                theta,
+                                cos_theta,
+                                gamma,
+                                cos_gamma,
+                                wavelengths[2],
+                            ),
+                            model.solar_radiance(
+                                theta,
+                                cos_theta,
+                                gamma,
+                                cos_gamma,
+                                wavelengths[3],
+                            ),
                         )
                     } else {
                         Vector4::from_element(0.0)

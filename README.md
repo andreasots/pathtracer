@@ -1,7 +1,7 @@
 # pathtracer
 
 # License
-* Files inside `src/bvh` are MIT licensed
+* File `src/bvh.rs` is MIT licensed
 * File `src/hosek_wilkie.rs` is licensed under the 3-clause BSD license.
 * File `src/data/RGB-Components-CIE-1931-1nm.csv` is licensed under CC BY-SA 4.0
 * File `src/data/Illuminantd64.csv` might have a license
