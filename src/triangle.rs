@@ -59,23 +59,7 @@ impl Triangle {
         let n2 = n.cross(&ab) / n.norm_squared();
         let d2 = -a.coords.dot(&n2);
 
-        Triangle {
-            a,
-            b,
-            c,
-
-            uv,
-            vertex_normals,
-
-            material_index,
-
-            n,
-            d,
-            n1,
-            d1,
-            n2,
-            d2,
-        }
+        Triangle { a, b, c, uv, vertex_normals, material_index, n, d, n1, d1, n2, d2 }
     }
 
     pub fn texture_coords(&self) -> Option<[Point2<f32>; 3]> {
@@ -127,20 +111,13 @@ impl Intersect for Triangle {
             return None;
         }
 
-        Some(Intersection {
-            distance,
-            normal: self.n,
-            u: u * inv_det,
-            v: v * inv_det,
-        })
+        Some(Intersection { distance, normal: self.n, u: u * inv_det, v: v * inv_det })
     }
 }
 
 impl Bounded for Triangle {
     fn aabb(&self) -> AABB {
-        AABB::with_bounds(self.a, self.a)
-            .grow(&self.b)
-            .grow(&self.c)
+        AABB::with_bounds(self.a, self.a).grow(&self.b).grow(&self.c)
     }
 }
 
@@ -161,10 +138,7 @@ mod test {
             0,
         );
 
-        let ray = Ray::new(
-            Point3::new(1.0 / 3.0, 1.0 / 3.0, 0.0),
-            Vector3::new(0.0, 0.0, -1.0),
-        );
+        let ray = Ray::new(Point3::new(1.0 / 3.0, 1.0 / 3.0, 0.0), Vector3::new(0.0, 0.0, -1.0));
 
         let intersection = tri.intersect(&ray, f32::INFINITY).expect("no intersection");
 
@@ -184,10 +158,7 @@ mod test {
             0,
         );
 
-        let ray = Ray::new(
-            Point3::new(2.0 / 3.0, 2.0 / 3.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let ray = Ray::new(Point3::new(2.0 / 3.0, 2.0 / 3.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         let intersection = tri.intersect(&ray, f32::INFINITY);
         assert!(intersection.is_none(), "intersected at {:?}", intersection);
@@ -204,10 +175,7 @@ mod test {
             0,
         );
 
-        let ray = Ray::new(
-            Point3::new(2.0 / 3.0, 2.0 / 3.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let ray = Ray::new(Point3::new(2.0 / 3.0, 2.0 / 3.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         let intersection = tri.intersect(&ray, f32::INFINITY);
         assert!(intersection.is_none(), "intersected at {:?}", intersection);
@@ -224,10 +192,7 @@ mod test {
             0,
         );
 
-        let ray = Ray::new(
-            Point3::new(-2.0 / 3.0, 2.0 / 3.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let ray = Ray::new(Point3::new(-2.0 / 3.0, 2.0 / 3.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         let intersection = tri.intersect(&ray, f32::INFINITY);
         assert!(intersection.is_none(), "intersected at {:?}", intersection);
@@ -244,10 +209,7 @@ mod test {
             0,
         );
 
-        let ray = Ray::new(
-            Point3::new(2.0 / 3.0, -2.0 / 3.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let ray = Ray::new(Point3::new(2.0 / 3.0, -2.0 / 3.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         let intersection = tri.intersect(&ray, f32::INFINITY);
         assert!(intersection.is_none(), "intersected at {:?}", intersection);

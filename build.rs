@@ -110,16 +110,12 @@ fn main() -> Result<(), Error> {
             }
             avg /= n;
 
-            data.into_iter()
-                .map(|(_, radiance)| radiance / avg)
-                .collect()
+            data.into_iter().map(|(_, radiance)| radiance / avg).collect()
         },
     )
     .context("failed to convert the D64 illuminant table")?;
 
-    cc::Build::new()
-        .file("src/hosek-wilkie/ArHosekSkyModel.c")
-        .compile("hosek-wilkie");
+    cc::Build::new().file("src/hosek-wilkie/ArHosekSkyModel.c").compile("hosek-wilkie");
 
     println!("cargo:rerun-if-changed=src/hosek-wilkie/ArHosekSkyModel.h");
     let bindings = bindgen::Builder::default()
@@ -130,11 +126,9 @@ fn main() -> Result<(), Error> {
             "failed to generate bindings for the Hosek-Wilkie sky model reference implementation",
         );
 
-    bindings
-        .write_to_file(base_dir.join("ar_hosek_sky_model.rs"))
-        .context(
-            "failed to write the bindings for the Hosek-Wilkie sky model reference implementation",
-        )?;
+    bindings.write_to_file(base_dir.join("ar_hosek_sky_model.rs")).context(
+        "failed to write the bindings for the Hosek-Wilkie sky model reference implementation",
+    )?;
 
     Ok(())
 }

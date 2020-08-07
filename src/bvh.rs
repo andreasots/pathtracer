@@ -81,16 +81,8 @@ impl AABB {
 
     pub fn grow(&self, other: &Point3<f32>) -> AABB {
         AABB::with_bounds(
-            Point3::new(
-                self.min.x.min(other.x),
-                self.min.y.min(other.y),
-                self.min.z.min(other.z),
-            ),
-            Point3::new(
-                self.max.x.max(other.x),
-                self.max.y.max(other.y),
-                self.max.z.max(other.z),
-            ),
+            Point3::new(self.min.x.min(other.x), self.min.y.min(other.y), self.min.z.min(other.z)),
+            Point3::new(self.max.x.max(other.x), self.max.y.max(other.y), self.max.z.max(other.z)),
         )
     }
 
@@ -130,15 +122,8 @@ pub trait Intersect {
 
 #[derive(Debug, Copy, Clone)]
 pub enum BVHNode {
-    Leaf {
-        shape_index: usize,
-    },
-    Node {
-        child_l_index: usize,
-        child_l_aabb: AABB,
-        child_r_index: usize,
-        child_r_aabb: AABB,
-    },
+    Leaf { shape_index: usize },
+    Node { child_l_index: usize, child_l_aabb: AABB, child_r_index: usize, child_r_aabb: AABB },
 }
 
 impl BVHNode {
@@ -156,10 +141,7 @@ impl BVHNode {
             let center = &shape_aabb.center();
             let convex_hull_aabbs = &convex_hull.0;
             let convex_hull_centroids = &convex_hull.1;
-            (
-                convex_hull_aabbs.join(shape_aabb),
-                convex_hull_centroids.grow(center),
-            )
+            (convex_hull_aabbs.join(shape_aabb), convex_hull_centroids.grow(center))
         }
 
         let mut convex_hull = (AABB::empty(), AABB::empty());
@@ -259,12 +241,8 @@ impl BVHNode {
         // Construct the actual data structure and replace the dummy node.
         assert!(!child_l_aabb.is_empty());
         assert!(!child_r_aabb.is_empty());
-        nodes[node_index] = BVHNode::Node {
-            child_l_aabb,
-            child_l_index,
-            child_r_aabb,
-            child_r_index,
-        };
+        nodes[node_index] =
+            BVHNode::Node { child_l_aabb, child_l_index, child_r_aabb, child_r_index };
 
         node_index
     }
@@ -278,12 +256,7 @@ impl BVHNode {
         max_distance: f32,
     ) -> Option<(&'a Shape, Shape::Intersection)> {
         match nodes[node_index] {
-            BVHNode::Node {
-                ref child_l_aabb,
-                child_l_index,
-                ref child_r_aabb,
-                child_r_index,
-            } => {
+            BVHNode::Node { ref child_l_aabb, child_l_index, ref child_r_aabb, child_r_index } => {
                 let left_clip = ray.intersects_aabb(child_l_aabb);
                 let right_clip = ray.intersects_aabb(child_r_aabb);
 
@@ -356,9 +329,7 @@ impl BVHNode {
                 let start_ptr = start.map(|s| s as *const _).unwrap_or_else(std::ptr::null);
                 if shape as *const _ != start_ptr {
                     // TODO: use `max_distance`
-                    shape
-                        .intersect(ray, f32::INFINITY)
-                        .map(|intersection| (shape, intersection))
+                    shape.intersect(ray, f32::INFINITY).map(|intersection| (shape, intersection))
                 } else {
                     None
                 }
@@ -447,10 +418,7 @@ pub struct Bucket {
 
 impl Bucket {
     pub fn empty() -> Bucket {
-        Bucket {
-            size: 0,
-            aabb: AABB::empty(),
-        }
+        Bucket { size: 0, aabb: AABB::empty() }
     }
 
     pub fn add_aabb(&mut self, aabb: &AABB) {
@@ -459,10 +427,7 @@ impl Bucket {
     }
 
     pub fn join_bucket(a: Bucket, b: &Bucket) -> Bucket {
-        Bucket {
-            size: a.size + b.size,
-            aabb: a.aabb.join(&b.aabb),
-        }
+        Bucket { size: a.size + b.size, aabb: a.aabb.join(&b.aabb) }
     }
 }
 

@@ -15,22 +15,10 @@ struct Vertex {
 impl Vertex {
     fn rectangle(half_width: f32, half_height: f32) -> [Vertex; 4] {
         [
-            Vertex {
-                pos: [-half_width, -half_height],
-                uv: [0.0, 1.0],
-            },
-            Vertex {
-                pos: [-half_width, half_height],
-                uv: [0.0, 0.0],
-            },
-            Vertex {
-                pos: [half_width, -half_height],
-                uv: [1.0, 1.0],
-            },
-            Vertex {
-                pos: [half_width, half_height],
-                uv: [1.0, 0.0],
-            },
+            Vertex { pos: [-half_width, -half_height], uv: [0.0, 1.0] },
+            Vertex { pos: [-half_width, half_height], uv: [0.0, 0.0] },
+            Vertex { pos: [half_width, -half_height], uv: [1.0, 1.0] },
+            Vertex { pos: [half_width, half_height], uv: [1.0, 0.0] },
         ]
     }
 }
@@ -61,17 +49,11 @@ pub async fn renderer(
     )
     .await
     .context("failed to request an adapter")?;
-    let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor::default())
-        .await;
+    let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor::default()).await;
 
     let texture_descriptor = wgpu::TextureDescriptor {
         label: None,
-        size: wgpu::Extent3d {
-            width: width as u32,
-            height: height as u32,
-            depth: 1,
-        },
+        size: wgpu::Extent3d { width: width as u32, height: height as u32, depth: 1 },
         array_layer_count: 1,
         mip_level_count: 1,
         sample_count: 1,
@@ -136,10 +118,7 @@ pub async fn renderer(
                 binding: 0,
                 resource: wgpu::BindingResource::TextureView(&texture_view),
             },
-            wgpu::Binding {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(&sampler),
-            },
+            wgpu::Binding { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
             wgpu::Binding {
                 binding: 2,
                 resource: wgpu::BindingResource::Buffer {
@@ -212,10 +191,7 @@ pub async fn renderer(
         Event::NewEvents(..) => {
             *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(100));
         }
-        Event::WindowEvent {
-            event: WindowEvent::Resized(size),
-            ..
-        } => {
+        Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
             swap_chain_descriptor.width = size.width;
             swap_chain_descriptor.height = size.height;
             swap_chain = device.create_swap_chain(&surface, &swap_chain_descriptor);
@@ -239,9 +215,7 @@ pub async fn renderer(
                 WindowEvent::KeyboardInput {
                     input:
                         KeyboardInput {
-                            state: ElementState::Released,
-                            virtual_keycode: Some(key),
-                            ..
+                            state: ElementState::Released, virtual_keycode: Some(key), ..
                         },
                     ..
                 },
@@ -252,10 +226,7 @@ pub async fn renderer(
             }
             _ => (),
         },
-        Event::WindowEvent {
-            event: WindowEvent::Focused(focused),
-            ..
-        } => {
+        Event::WindowEvent { event: WindowEvent::Focused(focused), .. } => {
             active = focused;
         }
         Event::MainEventsCleared => {
@@ -268,10 +239,7 @@ pub async fn renderer(
             let frame = match swap_chain.get_next_texture() {
                 Ok(frame) => frame,
                 Err(err) => {
-                    eprintln!(
-                        "ERROR: failed to get the next frame in the swap chain: {:?}",
-                        err
-                    );
+                    eprintln!("ERROR: failed to get the next frame in the swap chain: {:?}", err);
                     return;
                 }
             };
@@ -323,11 +291,7 @@ pub async fn renderer(
                     texture: &texture,
                     array_layer: 0,
                 },
-                wgpu::Extent3d {
-                    width: width as u32,
-                    height: height as u32,
-                    depth: 1,
-                },
+                wgpu::Extent3d { width: width as u32, height: height as u32, depth: 1 },
             );
 
             {
@@ -354,10 +318,7 @@ pub async fn renderer(
 
             queue.submit(&[encoder.finish()]);
         }
-        Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } => {
+        Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
             *control_flow = ControlFlow::Exit;
         }
         _ => (),

@@ -27,9 +27,7 @@ const TILE_SIZE: usize = 32;
 fn main() -> Result<(), Error> {
     simple_logger::init().context("failed to init logging")?;
 
-    let scene_file_name = std::env::args_os()
-        .nth(1)
-        .context("expected scene file name")?;
+    let scene_file_name = std::env::args_os().nth(1).context("expected scene file name")?;
     let scene = Scene::load(&scene_file_name).context("failed to load the scene")?;
     let (width, height) = scene.camera.resolution;
 
@@ -119,10 +117,7 @@ fn main() -> Result<(), Error> {
 
             let end = std::time::Instant::now();
 
-            println!(
-                "Rendered in {:.02} seconds",
-                end.duration_since(start).as_secs_f64()
-            );
+            println!("Rendered in {:.02} seconds", end.duration_since(start).as_secs_f64());
 
             done.store(true, Ordering::Release);
         });

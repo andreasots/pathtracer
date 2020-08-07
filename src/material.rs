@@ -49,11 +49,7 @@ impl From<DynamicImage> for Image<Color<SRGB>> {
             }
         }
 
-        Image {
-            width,
-            height,
-            data,
-        }
+        Image { width, height, data }
     }
 }
 
@@ -69,11 +65,7 @@ impl From<DynamicImage> for Image<f32> {
             }
         }
 
-        Image {
-            width,
-            height,
-            data,
-        }
+        Image { width, height, data }
     }
 }
 
@@ -171,17 +163,10 @@ impl Bsdf for Lambert {
         R: Rng + ?Sized,
     {
         let reflectance = self.reflectance.sample(u, v).reflectance_at4(wavelengths);
-        let (_, max) = if use_russian_roulette {
-            reflectance.argmax()
-        } else {
-            (0, 1.0)
-        };
+        let (_, max) = if use_russian_roulette { reflectance.argmax() } else { (0, 1.0) };
         if rng.gen::<f32>() < max {
             // The normalization factor is 1/pi and the PDF of the sampler is also 1/pi so they cancel out.
-            Some((
-                rng.sample(CosineWeightedHemisphere),
-                reflectance * (1.0 / max),
-            ))
+            Some((rng.sample(CosineWeightedHemisphere), reflectance * (1.0 / max)))
         } else {
             None
         }
@@ -282,9 +267,7 @@ impl Material {
             println!("\temit: {}", path);
             let tex = image::open(mtl_path.with_file_name(path))
                 .with_context(|| format!("failed to load emissive texture {:?}", path))?;
-            Emit::AbsorbedD65 {
-                absorption: Texture::Texture(tex.into()),
-            }
+            Emit::AbsorbedD65 { absorption: Texture::Texture(tex.into()) }
         } else if let Some(color) = mtl.ke {
             println!("\temit: {:?}", color);
             Emit::AbsorbedD65 {
@@ -308,14 +291,7 @@ impl Material {
             Texture::Flat(1.0)
         };
 
-        Ok(Material {
-            bsdf: Lambert {
-                reflectance: diffuse,
-            },
-            emit,
-            base_dissolve,
-            dissolve,
-        })
+        Ok(Material { bsdf: Lambert { reflectance: diffuse }, emit, base_dissolve, dissolve })
     }
 
     pub fn radiance<R>(
@@ -363,11 +339,7 @@ impl Material {
             };
 
             // `ray.direction` is facing *into* the surface and `normal` should *out of* the surface.
-            let normal = if normal.dot(&ray.direction) < 0.0 {
-                normal
-            } else {
-                -normal
-            };
+            let normal = if normal.dot(&ray.direction) < 0.0 { normal } else { -normal };
 
             let normal = normal.normalize();
             // TODO: calculate `(u, v)` from the texture mapping.
@@ -396,9 +368,7 @@ impl Material {
 impl Default for Material {
     fn default() -> Self {
         Self {
-            bsdf: Lambert {
-                reflectance: Texture::Flat(Color::srgb(0.75, 0.75, 0.75)),
-            },
+            bsdf: Lambert { reflectance: Texture::Flat(Color::srgb(0.75, 0.75, 0.75)) },
             emit: Emit::Null,
             base_dissolve: 1.0,
             dissolve: Texture::Flat(1.0),

@@ -70,10 +70,7 @@ impl Color<XYZ> {
 
     pub fn from_chromaticity_and_luminance(x: f32, y: f32, luminance: f32) -> Self {
         let scale = luminance / y;
-        Self(
-            Vector3::new(scale * x, luminance, scale * (1.0 - x - y)),
-            PhantomData,
-        )
+        Self(Vector3::new(scale * x, luminance, scale * (1.0 - x - y)), PhantomData)
     }
 
     pub fn from_wavelength(wavelength: f32) -> Self {
@@ -129,10 +126,7 @@ where
 {
     #[inline]
     fn from(rgba: Rgba<P>) -> Self {
-        let inv_max = 1.0
-            / P::max_value()
-                .to_f32()
-                .expect("pixel max outside of range for f32");
+        let inv_max = 1.0 / P::max_value().to_f32().expect("pixel max outside of range for f32");
 
         Color::srgb(
             to_linear_srgb(rgba[0].to_f32().expect("r outside of range for f32") * inv_max),

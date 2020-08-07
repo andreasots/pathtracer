@@ -39,10 +39,7 @@ impl ObjExt for Obj {
                 Point2::from(self.data.texture[c]),
             ]),
             (None, None, None) => None,
-            idx => panic!(
-                "texture coords defined on some vertices but not all: {:?}",
-                idx
-            ),
+            idx => panic!("texture coords defined on some vertices but not all: {:?}", idx),
         };
 
         let normal = match (a.2, b.2, c.2) {
@@ -114,12 +111,10 @@ impl InitialisedSky {
                 zenith_direction,
                 sun_direction,
             } => {
-                let zenith_direction = transform
-                    .transform_vector(&Vector3::from(zenith_direction))
-                    .normalize();
-                let sun_direction = transform
-                    .transform_vector(&Vector3::from(sun_direction))
-                    .normalize();
+                let zenith_direction =
+                    transform.transform_vector(&Vector3::from(zenith_direction)).normalize();
+                let sun_direction =
+                    transform.transform_vector(&Vector3::from(sun_direction)).normalize();
                 let solar_elevation = zenith_direction.dot(&sun_direction).asin();
 
                 assert!(solar_elevation > 0.0);
@@ -127,11 +122,7 @@ impl InitialisedSky {
                 let model =
                     HosekWilkieSkyModel::new(solar_elevation, atmospheric_turbidity, ground_albedo);
 
-                Self::HosekWilkie {
-                    model,
-                    zenith_direction,
-                    sun_direction,
-                }
+                Self::HosekWilkie { model, zenith_direction, sun_direction }
             }
         }
     }
@@ -162,22 +153,16 @@ impl Default for Camera {
 #[derive(Deserialize, Serialize, Debug, Copy, Clone)]
 #[serde(untagged)]
 enum CameraTransform {
-    LookAt {
-        eye: [f32; 3],
-        target: [f32; 3],
-        up: [f32; 3],
-    },
+    LookAt { eye: [f32; 3], target: [f32; 3], up: [f32; 3] },
     Matrix([[f32; 4]; 4]),
 }
 
 impl CameraTransform {
     fn into_matrix(self) -> Matrix4<f32> {
         match self {
-            CameraTransform::LookAt { eye, target, up } => Matrix4::look_at_rh(
-                &Point3::from(eye),
-                &Point3::from(target),
-                &Vector3::from(up),
-            ),
+            CameraTransform::LookAt { eye, target, up } => {
+                Matrix4::look_at_rh(&Point3::from(eye), &Point3::from(target), &Vector3::from(up))
+            }
             CameraTransform::Matrix(matrix) => Matrix4::from(matrix),
         }
     }
@@ -210,8 +195,7 @@ impl Scene {
         let scene: SceneFile = {
             let mut file = File::open(path).context("failed to open scene file")?;
             let mut contents = vec![];
-            file.read_to_end(&mut contents)
-                .context("failed to read scene file")?;
+            file.read_to_end(&mut contents).context("failed to read scene file")?;
             toml::from_slice(&contents).context("failed to parse scene file")?
         };
 
@@ -234,29 +218,27 @@ impl Scene {
             for object in &mesh.data.objects {
                 for group in &object.groups {
                     let material = match group.material {
-                        Some(ObjMaterial::Mtl(ref material)) => {
-                            match material_map.entry(&material.name) {
-                                Entry::Vacant(entry) => {
-                                    let i = materials.len();
-                                    let mtl = mesh
-                                        .data
-                                        .material_libs
-                                        .iter()
-                                        .find(|mtl| {
-                                            mtl.materials
-                                                .iter()
-                                                .any(|mat| mat.name == material.name)
-                                        })
-                                        .expect("material was loaded from nowhere???");
-                                    materials.push(Material::from_mtl(
-                                        mesh.path.join(&mtl.filename),
-                                        &material,
-                                    )?);
-                                    *entry.insert(i)
-                                }
-                                Entry::Occupied(entry) => *entry.get(),
+                        Some(ObjMaterial::Mtl(ref material)) => match material_map
+                            .entry(&material.name)
+                        {
+                            Entry::Vacant(entry) => {
+                                let i = materials.len();
+                                let mtl = mesh
+                                    .data
+                                    .material_libs
+                                    .iter()
+                                    .find(|mtl| {
+                                        mtl.materials.iter().any(|mat| mat.name == material.name)
+                                    })
+                                    .expect("material was loaded from nowhere???");
+                                materials.push(Material::from_mtl(
+                                    mesh.path.join(&mtl.filename),
+                                    &material,
+                                )?);
+                                *entry.insert(i)
                             }
-                        }
+                            Entry::Occupied(entry) => *entry.get(),
+                        },
                         Some(ObjMaterial::Ref(ref name)) => {
                             eprintln!("missing material {:?}", name);
                             0
@@ -327,11 +309,7 @@ impl Scene {
             match self.sky {
                 InitialisedSky::D65 { power } if power == 0.0 => Vector4::from_element(0.0),
                 InitialisedSky::D65 { power } => D65.sample4(wavelengths) * power,
-                InitialisedSky::HosekWilkie {
-                    model,
-                    zenith_direction,
-                    sun_direction,
-                } => {
+                InitialisedSky::HosekWilkie { model, zenith_direction, sun_direction } => {
                     let cos_theta = ray.direction.dot(&zenith_direction);
                     if cos_theta > 0.0 {
                         let theta = cos_theta.min(1.0).acos();
