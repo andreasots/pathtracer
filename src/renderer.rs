@@ -259,8 +259,11 @@ pub async fn renderer(
                 log_total_luminance += (0.001 + dst[1].abs()).ln();
                 max_luminance = max_luminance.max(dst[1]);
             }
+            // `avg_luminance` gets mapped to zone V (middle gray) and `max_luminance` to zone X.
+            // Make sure that `max_luminance` is 32 times brighter than `avg_luminance` so that
+            // the image isn't blown out to white.
             let avg_luminance = (4.0 * log_total_luminance / framebuffer.len() as f32).exp();
-            let max_luminance = max_luminance.max(avg_luminance / 0.18);
+            let max_luminance = max_luminance.max(avg_luminance * 32.0);
 
             println!("avg {:8.4} max {:8.4}", avg_luminance, max_luminance);
             let new_tone_mapping_buffer = device.create_buffer_with_data(
