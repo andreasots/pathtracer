@@ -256,13 +256,15 @@ pub async fn renderer(
                 dst[2] = f32::from_bits(src[2].load(Ordering::Relaxed));
                 dst[3] = f32::from_bits(src[3].load(Ordering::Relaxed));
 
-                log_total_luminance += (0.001 + dst[1].abs() as f64).ln();
+                log_total_luminance += (0.001 + dst[1].abs()).ln();
                 max_luminance = max_luminance.max(dst[1]);
             }
-            let avg_luminance = (4.0 * log_total_luminance / framebuffer.len() as f64).exp();
+            let avg_luminance = (4.0 * log_total_luminance / framebuffer.len() as f32).exp();
+            let max_luminance = max_luminance.max(avg_luminance / 0.18);
+
             println!("avg {:8.4} max {:8.4}", avg_luminance, max_luminance);
             let new_tone_mapping_buffer = device.create_buffer_with_data(
-                bytemuck::cast_slice(&[avg_luminance as f32, max_luminance]),
+                bytemuck::cast_slice(&[avg_luminance, max_luminance]),
                 wgpu::BufferUsage::COPY_SRC,
             );
             encoder.copy_buffer_to_buffer(

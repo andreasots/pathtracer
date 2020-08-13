@@ -5,7 +5,7 @@ use crate::scene::Scene;
 use crate::triangle::{Intersection, Triangle};
 use anyhow::{Context, Error};
 use image::{DynamicImage, GenericImageView};
-use nalgebra::{Vector3, Vector4};
+use nalgebra::{Vector3, Vector4, Matrix3};
 use rand::Rng;
 use std::ops::{Add, Index, Mul};
 use std::path::Path;
@@ -144,6 +144,8 @@ pub trait Bsdf {
     ) -> Option<(Vector3<f32>, Vector4<f32>)>
     where
         R: Rng + ?Sized;
+    
+    fn calculate(&self, u: f32, v: f32, wavelengths: [f32; 4], dir: Vector3<f32>) -> Vector4<f32>;
 }
 
 pub struct Lambert {
@@ -170,6 +172,11 @@ impl Bsdf for Lambert {
         } else {
             None
         }
+    }
+
+    fn calculate(&self, u: f32, v: f32, wavelengths: [f32; 4], dir: Vector3<f32>) -> Vector4<f32> {
+        let reflectance = self.reflectance.sample(u, v).reflectance_at4(wavelengths);
+        reflectance * std::f32::consts::FRAC_1_PI
     }
 }
 
@@ -201,6 +208,11 @@ where
             self.b.sample(u, v, wavelengths, use_russian_roulette, rng)
         }
     }
+
+    fn calculate(&self, u: f32, v: f32, wavelengths: [f32; 4], dir: Vector3<f32>) -> Vector4<f32> {
+        self.a.calculate(u, v, wavelengths, dir) * self.a_weight
+            + self.b.calculate(u, v, wavelengths, dir) * (1.0 - self.a_weight)
+    }
 }
 
 pub struct Null;
@@ -218,6 +230,10 @@ impl Bsdf for Null {
         R: Rng + ?Sized,
     {
         None
+    }
+
+    fn calculate(&self, _u: f32, _v: f32, _wavelengths: [f32; 4], _dir: Vector3<f32>) -> Vector4<f32> {
+        Vector4::from_element(0.0)
     }
 }
 
@@ -327,21 +343,19 @@ impl Material {
             );
         }
 
-        let emit = self.emit.sample(u, v, wavelengths);
+        let normal = if let Some(normals) = triangle.vertex_normals() {
+            (1.0 - intersection.u - intersection.v) * normals[0]
+                + intersection.u * normals[1]
+                + intersection.v * normals[2]
+        } else {
+            intersection.normal
+        };
 
-        if let Some((d, weight)) = self.bsdf.sample(u, v, wavelengths, depth > 2, rng) {
-            let normal = if let Some(normals) = triangle.vertex_normals() {
-                (1.0 - intersection.u - intersection.v) * normals[0]
-                    + intersection.u * normals[1]
-                    + intersection.v * normals[2]
-            } else {
-                intersection.normal
-            };
+        // `ray.direction` is facing *into* the surface and `normal` should *out of* the surface.
+        let normal = if normal.dot(&ray.direction) < 0.0 { normal } else { -normal };
 
-            // `ray.direction` is facing *into* the surface and `normal` should *out of* the surface.
-            let normal = if normal.dot(&ray.direction) < 0.0 { normal } else { -normal };
-
-            let normal = normal.normalize();
+        let normal = normal.normalize();
+        let tangent_space = {
             // TODO: calculate `(u, v)` from the texture mapping.
             let v = if normal.x.abs() > 0.1 {
                 Vector3::new(0.0, 1.0, 0.0)
@@ -351,17 +365,24 @@ impl Material {
             let u = v.cross(&normal).normalize();
             let v = normal.cross(&u);
 
-            let d = u * d.x + v * d.y + normal * d.z;
+            // TODO: technically this should also transform the origin to `p`
+            Matrix3::from_columns(&[u, v, normal]).to_homogeneous()
+        };
 
-            let p = ray.origin + ray.direction * intersection.distance;
+        let p = ray.origin + ray.direction * intersection.distance;
+
+        let mut radiance = Vector4::from_element(0.0);
+
+        if let Some((d, weight)) = self.bsdf.sample(u, v, wavelengths, depth > 2, rng) {
+            let d = tangent_space.transform_vector(&d);
 
             let incoming =
                 scene.radiance(Ray::new(p, d), wavelengths, rng, Some(triangle), depth + 1);
 
-            incoming.component_mul(&weight) + emit
-        } else {
-            emit
+            radiance += incoming.component_mul(&weight);
         }
+
+        self.emit.sample(u, v, wavelengths) + radiance
     }
 }
 

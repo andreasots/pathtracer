@@ -280,6 +280,15 @@ impl Scene {
         })
     }
 
+    pub fn sun(&self) -> Option<(Vector3<f32>, f32)> {
+        match self.sky {
+            InitialisedSky::D65 { .. } => None,
+            InitialisedSky::HosekWilkie { model, sun_direction, .. } => {
+                Some((sun_direction, model.solar_radius))
+            }
+        }
+    }
+
     pub fn radiance<R>(
         &self,
         ray: Ray,
@@ -316,36 +325,45 @@ impl Scene {
                         let cos_gamma = ray.direction.dot(&sun_direction);
                         let gamma = cos_gamma.min(1.0).max(-1.0).acos();
 
-                        Vector4::new(
-                            model.solar_radiance(
-                                theta,
-                                cos_theta,
-                                gamma,
-                                cos_gamma,
-                                wavelengths[0],
-                            ),
-                            model.solar_radiance(
-                                theta,
-                                cos_theta,
-                                gamma,
-                                cos_gamma,
-                                wavelengths[1],
-                            ),
-                            model.solar_radiance(
-                                theta,
-                                cos_theta,
-                                gamma,
-                                cos_gamma,
-                                wavelengths[2],
-                            ),
-                            model.solar_radiance(
-                                theta,
-                                cos_theta,
-                                gamma,
-                                cos_gamma,
-                                wavelengths[3],
-                            ),
-                        )
+                        if gamma < model.solar_radius {
+                            Vector4::new(
+                                model.solar_radiance(
+                                    theta,
+                                    cos_theta,
+                                    gamma,
+                                    cos_gamma,
+                                    wavelengths[0],
+                                ),
+                                model.solar_radiance(
+                                    theta,
+                                    cos_theta,
+                                    gamma,
+                                    cos_gamma,
+                                    wavelengths[1],
+                                ),
+                                model.solar_radiance(
+                                    theta,
+                                    cos_theta,
+                                    gamma,
+                                    cos_gamma,
+                                    wavelengths[2],
+                                ),
+                                model.solar_radiance(
+                                    theta,
+                                    cos_theta,
+                                    gamma,
+                                    cos_gamma,
+                                    wavelengths[3],
+                                ),
+                            )
+                        } else {
+                            Vector4::new(
+                                model.radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[0]),
+                                model.radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[1]),
+                                model.radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[2]),
+                                model.radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[3]),
+                            )
+                        }
                     } else {
                         Vector4::from_element(0.0)
                     }

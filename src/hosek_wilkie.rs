@@ -35,7 +35,7 @@ pub struct HosekWilkieSkyModel {
     configs: [[f32; 9]; 11],
     radiances: [f32; 11],
     turbidity: f32,
-    solar_radius: f32,
+    pub solar_radius: f32,
     emission_correction_factor_sky: [f32; 11],
     emission_correction_factor_sun: [f32; 11],
 }
@@ -522,7 +522,7 @@ mod test {
                         ground_albedo as f64,
                     )
                 };
-                let val = unsafe { 
+                let val = unsafe {
                     arhosekskymodel_radiance(ptr, theta as f64, gamma as f64, wavelength as f64)
                 };
                 unsafe { arhosekskymodelstate_free(ptr) };

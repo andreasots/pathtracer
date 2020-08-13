@@ -35,8 +35,8 @@ fn main() -> Result<(), Error> {
     let uninitialized_buffer_color = loop {
         let wavelength = rand::thread_rng().sample(Uniform::new(MIN_WAVELENGTH, MAX_WAVELENGTH));
         let color = Color::from_wavelength(wavelength);
-        if color.y() > 0.1 {
-            break color;
+        if color.y() > 0.01 {
+            break color * (0.02 / color.y());
         }
     };
     for _ in 0..height {
