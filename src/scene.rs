@@ -2,6 +2,7 @@ use crate::bvh::{Ray, BVH};
 use crate::material::{Material, D65};
 use crate::{hosek_wilkie::HosekWilkieSkyModel, triangle::Triangle};
 use anyhow::{Context, Error};
+use arrayvec::ArrayVec;
 use nalgebra::{Matrix4, Point2, Point3, Vector3, Vector4};
 use obj::{IndexTuple, Obj, ObjMaterial};
 use rand::Rng;
@@ -280,7 +281,7 @@ impl Scene {
         })
     }
 
-    fn evaluate_sky(&self, ray: Ray, wavelengths: [f32; 4],) -> Vector4<f32> {
+    fn evaluate_sky(&self, ray: Ray, wavelengths: [f32; 4]) -> Vector4<f32> {
         match self.sky {
             InitialisedSky::D65 { power } if power == 0.0 => Vector4::from_element(0.0),
             InitialisedSky::D65 { power } => D65.sample4(wavelengths) * power,
@@ -305,31 +306,66 @@ impl Scene {
 
     pub fn radiance<R>(
         &self,
-        ray: Ray,
+        mut ray: Ray,
         wavelengths: [f32; 4],
         rng: &mut R,
         start: Option<&Triangle>,
-        depth: usize,
     ) -> Vector4<f32>
     where
         R: Rng + ?Sized,
     {
-        if depth > 16 {
-            return Vector4::from_element(0.0);
+        #[derive(Copy, Clone)]
+        struct Bounce {
+            /// BRDF(...) * n.dot(&-ray.direction)
+            weight: Vector4<f32>,
+            emit: Vector4<f32>,
         }
 
-        if let Some((triangle, intersection)) = self.bvh.traverse(&ray, start, &self.triangles) {
-            self.materials[triangle.material_index()].radiance(
-                ray,
-                wavelengths,
-                intersection,
-                triangle,
-                self,
-                rng,
-                depth,
-            )
-        } else {
-            self.evaluate_sky(ray, wavelengths)
+        let mut camera_subpath = ArrayVec::<[Bounce; 16]>::new();
+
+        let mut start = start;
+
+        while camera_subpath.len() < camera_subpath.capacity() {
+            if let Some((triangle, intersection)) = self.bvh.traverse(&ray, start, &self.triangles)
+            {
+                if let Some(mut sample) = self.materials[triangle.material_index()].sample(
+                    ray,
+                    wavelengths,
+                    intersection,
+                    triangle,
+                    rng,
+                ) {
+                    if camera_subpath.len() > 1 {
+                        let (_, max) = sample.weight.argmax();
+                        if rng.gen::<f32>() < max {
+                            sample.weight /= max;
+                        } else {
+                            camera_subpath.push(Bounce {
+                                weight: Vector4::from_element(0.0),
+                                emit: sample.emit,
+                            });
+                            break;
+                        }
+                    }
+                    camera_subpath.push(Bounce { weight: sample.weight, emit: sample.emit });
+                    ray = sample.new_ray;
+                    start = Some(triangle);
+                } else {
+                    ray =
+                        Ray::new(ray.origin + intersection.distance * ray.direction, ray.direction);
+                    start = Some(triangle);
+                }
+            } else {
+                camera_subpath.push(Bounce {
+                    weight: Vector4::from_element(0.0),
+                    emit: self.evaluate_sky(ray, wavelengths),
+                });
+                break;
+            }
         }
+
+        camera_subpath.iter().rev().fold(Vector4::from_element(0.0), |radiance, bounce| {
+            radiance.component_mul(&bounce.weight) + bounce.emit
+        })
     }
 }

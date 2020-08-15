@@ -1,7 +1,6 @@
 use crate::bvh::Ray;
 use crate::color::{Color, SRGB, XYZ};
 use crate::distributions::CosineWeightedHemisphere;
-use crate::scene::Scene;
 use crate::triangle::{Intersection, Triangle};
 use anyhow::{Context, Error};
 use image::{DynamicImage, GenericImageView};
@@ -139,9 +138,8 @@ pub trait Bsdf {
         u: f32,
         v: f32,
         wavelengths: [f32; 4],
-        use_russian_roulette: bool,
         rng: &mut R,
-    ) -> Option<(Vector3<f32>, Vector4<f32>)>
+    ) -> (Vector3<f32>, Vector4<f32>)
     where
         R: Rng + ?Sized;
 
@@ -158,88 +156,19 @@ impl Bsdf for Lambert {
         u: f32,
         v: f32,
         wavelengths: [f32; 4],
-        use_russian_roulette: bool,
         rng: &mut R,
-    ) -> Option<(Vector3<f32>, Vector4<f32>)>
+    ) -> (Vector3<f32>, Vector4<f32>)
     where
         R: Rng + ?Sized,
     {
         let reflectance = self.reflectance.sample(u, v).reflectance_at4(wavelengths);
-        let (_, max) = if use_russian_roulette { reflectance.argmax() } else { (0, 1.0) };
-        if rng.gen::<f32>() < max {
-            // The normalization factor is 1/pi and the PDF of the sampler is also 1/pi so they cancel out.
-            Some((rng.sample(CosineWeightedHemisphere), reflectance * (1.0 / max)))
-        } else {
-            None
-        }
+        // The normalization factor is 1/pi and the PDF of the sampler is also 1/pi so they cancel out.
+        (rng.sample(CosineWeightedHemisphere), reflectance)
     }
 
     fn calculate(&self, u: f32, v: f32, wavelengths: [f32; 4], _dir: Vector3<f32>) -> Vector4<f32> {
         let reflectance = self.reflectance.sample(u, v).reflectance_at4(wavelengths);
         reflectance * std::f32::consts::FRAC_1_PI
-    }
-}
-
-pub struct Mix<A, B> {
-    a: A,
-    a_weight: f32,
-    b: B,
-}
-
-impl<A, B> Bsdf for Mix<A, B>
-where
-    A: Bsdf,
-    B: Bsdf,
-{
-    fn sample<R>(
-        &self,
-        u: f32,
-        v: f32,
-        wavelengths: [f32; 4],
-        use_russian_roulette: bool,
-        rng: &mut R,
-    ) -> Option<(Vector3<f32>, Vector4<f32>)>
-    where
-        R: Rng + ?Sized,
-    {
-        if rng.gen::<f32>() < self.a_weight {
-            self.a.sample(u, v, wavelengths, use_russian_roulette, rng)
-        } else {
-            self.b.sample(u, v, wavelengths, use_russian_roulette, rng)
-        }
-    }
-
-    fn calculate(&self, u: f32, v: f32, wavelengths: [f32; 4], dir: Vector3<f32>) -> Vector4<f32> {
-        self.a.calculate(u, v, wavelengths, dir) * self.a_weight
-            + self.b.calculate(u, v, wavelengths, dir) * (1.0 - self.a_weight)
-    }
-}
-
-pub struct Null;
-
-impl Bsdf for Null {
-    fn sample<R>(
-        &self,
-        _u: f32,
-        _v: f32,
-        _wavelengths: [f32; 4],
-        _use_russian_roulette: bool,
-        _rng: &mut R,
-    ) -> Option<(Vector3<f32>, Vector4<f32>)>
-    where
-        R: Rng + ?Sized,
-    {
-        None
-    }
-
-    fn calculate(
-        &self,
-        _u: f32,
-        _v: f32,
-        _wavelengths: [f32; 4],
-        _dir: Vector3<f32>,
-    ) -> Vector4<f32> {
-        Vector4::from_element(0.0)
     }
 }
 
@@ -257,6 +186,13 @@ impl Emit {
             Self::Null => Vector4::from_element(0.0),
         }
     }
+}
+
+pub struct Sample {
+    pub emit: Vector4<f32>,
+    /// BRDF(..) * n.dot(&-ray.direction)
+    pub weight: Vector4<f32>,
+    pub new_ray: Ray,
 }
 
 pub struct Material {
@@ -316,16 +252,14 @@ impl Material {
         Ok(Material { bsdf: Lambert { reflectance: diffuse }, emit, base_dissolve, dissolve })
     }
 
-    pub fn radiance<R>(
+    pub fn sample<R>(
         &self,
         ray: Ray,
         wavelengths: [f32; 4],
         intersection: Intersection,
         triangle: &Triangle,
-        scene: &Scene,
         rng: &mut R,
-        depth: usize,
-    ) -> Vector4<f32>
+    ) -> Option<Sample>
     where
         R: Rng + ?Sized,
     {
@@ -339,14 +273,7 @@ impl Material {
         };
 
         if rng.gen::<f32>() >= self.base_dissolve * self.dissolve.sample(u, v) {
-            let p = ray.origin + ray.direction * intersection.distance;
-            return scene.radiance(
-                Ray::new(p, ray.direction),
-                wavelengths,
-                rng,
-                Some(triangle),
-                depth + 1,
-            );
+            return None;
         }
 
         let normal = if let Some(normals) = triangle.vertex_normals() {
@@ -377,18 +304,10 @@ impl Material {
 
         let p = ray.origin + ray.direction * intersection.distance;
 
-        let mut radiance = Vector4::from_element(0.0);
+        let (d, weight) = self.bsdf.sample(u, v, wavelengths, rng);
+        let d = tangent_space.transform_vector(&d);
 
-        if let Some((d, weight)) = self.bsdf.sample(u, v, wavelengths, depth > 2, rng) {
-            let d = tangent_space.transform_vector(&d);
-
-            let incoming =
-                scene.radiance(Ray::new(p, d), wavelengths, rng, Some(triangle), depth + 1);
-
-            radiance += incoming.component_mul(&weight);
-        }
-
-        self.emit.sample(u, v, wavelengths) + radiance
+        Some(Sample { emit: self.emit.sample(u, v, wavelengths), weight, new_ray: Ray::new(p, d) })
     }
 }
 

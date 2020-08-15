@@ -71,13 +71,7 @@ impl HosekWilkieSkyModel {
         state
     }
 
-    pub fn radiance(
-        &self,
-        cos_theta: f32,
-        gamma: f32,
-        cos_gamma: f32,
-        wavelength: f32,
-    ) -> f32 {
+    pub fn radiance(&self, cos_theta: f32, gamma: f32, cos_gamma: f32, wavelength: f32) -> f32 {
         let low_wl = ((wavelength - 320.0) / 40.0) as usize;
         if low_wl >= 11 {
             return 0.0;

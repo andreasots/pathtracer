@@ -92,7 +92,7 @@ fn main() -> Result<(), Error> {
                                         .rem_euclid(wavelength_width),
                             ];
 
-                            let radiance = scene.radiance(ray, wavelengths, &mut rng, None, 0);
+                            let radiance = scene.radiance(ray, wavelengths, &mut rng, None);
 
                             accumulator +=
                                 Color::from_wavelength(wavelengths[0]) * radiance[0] * 0.25;
