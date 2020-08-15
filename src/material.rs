@@ -5,7 +5,7 @@ use crate::scene::Scene;
 use crate::triangle::{Intersection, Triangle};
 use anyhow::{Context, Error};
 use image::{DynamicImage, GenericImageView};
-use nalgebra::{Vector3, Vector4, Matrix3};
+use nalgebra::{Matrix3, Vector3, Vector4};
 use rand::Rng;
 use std::ops::{Add, Index, Mul};
 use std::path::Path;
@@ -144,7 +144,7 @@ pub trait Bsdf {
     ) -> Option<(Vector3<f32>, Vector4<f32>)>
     where
         R: Rng + ?Sized;
-    
+
     fn calculate(&self, u: f32, v: f32, wavelengths: [f32; 4], dir: Vector3<f32>) -> Vector4<f32>;
 }
 
@@ -174,7 +174,7 @@ impl Bsdf for Lambert {
         }
     }
 
-    fn calculate(&self, u: f32, v: f32, wavelengths: [f32; 4], dir: Vector3<f32>) -> Vector4<f32> {
+    fn calculate(&self, u: f32, v: f32, wavelengths: [f32; 4], _dir: Vector3<f32>) -> Vector4<f32> {
         let reflectance = self.reflectance.sample(u, v).reflectance_at4(wavelengths);
         reflectance * std::f32::consts::FRAC_1_PI
     }
@@ -232,7 +232,13 @@ impl Bsdf for Null {
         None
     }
 
-    fn calculate(&self, _u: f32, _v: f32, _wavelengths: [f32; 4], _dir: Vector3<f32>) -> Vector4<f32> {
+    fn calculate(
+        &self,
+        _u: f32,
+        _v: f32,
+        _wavelengths: [f32; 4],
+        _dir: Vector3<f32>,
+    ) -> Vector4<f32> {
         Vector4::from_element(0.0)
     }
 }

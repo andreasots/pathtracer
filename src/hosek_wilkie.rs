@@ -30,6 +30,8 @@
 
 #![allow(clippy::excessive_precision)]
 
+use nalgebra::Vector4;
+
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub struct HosekWilkieSkyModel {
     configs: [[f32; 9]; 11],
@@ -71,7 +73,6 @@ impl HosekWilkieSkyModel {
 
     pub fn radiance(
         &self,
-        theta: f32,
         cos_theta: f32,
         gamma: f32,
         cos_gamma: f32,
@@ -84,7 +85,7 @@ impl HosekWilkieSkyModel {
 
         let interp = ((wavelength - 320.0) / 40.0) % 1.0;
         let val_low =
-            Self::get_radiance_internal(&self.configs[low_wl], theta, cos_theta, gamma, cos_gamma)
+            Self::get_radiance_internal(&self.configs[low_wl], cos_theta, gamma, cos_gamma)
                 * self.radiances[low_wl]
                 * self.emission_correction_factor_sky[low_wl];
         if interp < 1e-6 {
@@ -95,7 +96,6 @@ impl HosekWilkieSkyModel {
             result += interp
                 * Self::get_radiance_internal(
                     &self.configs[low_wl + 1],
-                    theta,
                     cos_theta,
                     gamma,
                     cos_gamma,
@@ -105,6 +105,21 @@ impl HosekWilkieSkyModel {
         }
 
         result
+    }
+
+    pub fn radiance4(
+        &self,
+        cos_theta: f32,
+        gamma: f32,
+        cos_gamma: f32,
+        wavelengths: [f32; 4],
+    ) -> Vector4<f32> {
+        Vector4::new(
+            self.radiance(cos_theta, gamma, cos_gamma, wavelengths[0]),
+            self.radiance(cos_theta, gamma, cos_gamma, wavelengths[1]),
+            self.radiance(cos_theta, gamma, cos_gamma, wavelengths[2]),
+            self.radiance(cos_theta, gamma, cos_gamma, wavelengths[3]),
+        )
     }
 
     pub fn solar_radiance(
@@ -121,9 +136,25 @@ impl HosekWilkieSkyModel {
 
         let direct_radiance =
             self.solar_radiance_internal2(wavelength, std::f32::consts::FRAC_PI_2 - theta, gamma);
-        let inscattered_radiance = self.radiance(theta, cos_theta, gamma, cos_gamma, wavelength);
+        let inscattered_radiance = self.radiance(cos_theta, gamma, cos_gamma, wavelength);
 
         direct_radiance + inscattered_radiance
+    }
+
+    pub fn solar_radiance4(
+        &self,
+        theta: f32,
+        cos_theta: f32,
+        gamma: f32,
+        cos_gamma: f32,
+        wavelengths: [f32; 4],
+    ) -> Vector4<f32> {
+        Vector4::new(
+            self.solar_radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[0]),
+            self.solar_radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[1]),
+            self.solar_radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[2]),
+            self.solar_radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[3]),
+        )
     }
 
     fn cook_configuration(
@@ -290,7 +321,6 @@ impl HosekWilkieSkyModel {
 
     fn get_radiance_internal(
         configuration: &[f32; 9],
-        theta: f32,
         cos_theta: f32,
         gamma: f32,
         cos_gamma: f32,
@@ -312,7 +342,6 @@ impl HosekWilkieSkyModel {
 
     fn sr_internal(&self, turbidity: usize, wl: usize, elevation: f32) -> f32 {
         const PIECES: usize = 45;
-        const ORDER: usize = 4;
 
         let pos = std::cmp::min(
             ((2.0 * elevation / std::f32::consts::PI).cbrt() * PIECES as f32) as usize,
@@ -513,7 +542,7 @@ mod test {
                 atmospheric_turbidity,
                 ground_albedo,
             )
-                .radiance(theta, theta.cos(), gamma, gamma.cos(), wavelength);
+                .radiance(theta.cos(), gamma, gamma.cos(), wavelength);
             let expected = {
                 let ptr = unsafe {
                     arhosekskymodelstate_alloc_init(

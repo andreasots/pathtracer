@@ -280,11 +280,25 @@ impl Scene {
         })
     }
 
-    pub fn sun(&self) -> Option<(Vector3<f32>, f32)> {
+    fn evaluate_sky(&self, ray: Ray, wavelengths: [f32; 4],) -> Vector4<f32> {
         match self.sky {
-            InitialisedSky::D65 { .. } => None,
-            InitialisedSky::HosekWilkie { model, sun_direction, .. } => {
-                Some((sun_direction, model.solar_radius))
+            InitialisedSky::D65 { power } if power == 0.0 => Vector4::from_element(0.0),
+            InitialisedSky::D65 { power } => D65.sample4(wavelengths) * power,
+            InitialisedSky::HosekWilkie { model, zenith_direction, sun_direction } => {
+                let cos_theta = ray.direction.dot(&zenith_direction);
+                if cos_theta > 0.0 {
+                    let theta = cos_theta.min(1.0).acos();
+                    let cos_gamma = ray.direction.dot(&sun_direction);
+                    let gamma = cos_gamma.min(1.0).max(-1.0).acos();
+
+                    if gamma < model.solar_radius {
+                        model.solar_radiance4(theta, cos_theta, gamma, cos_gamma, wavelengths)
+                    } else {
+                        model.radiance4(cos_theta, gamma, cos_gamma, wavelengths)
+                    }
+                } else {
+                    Vector4::from_element(0.0)
+                }
             }
         }
     }
@@ -315,60 +329,7 @@ impl Scene {
                 depth,
             )
         } else {
-            match self.sky {
-                InitialisedSky::D65 { power } if power == 0.0 => Vector4::from_element(0.0),
-                InitialisedSky::D65 { power } => D65.sample4(wavelengths) * power,
-                InitialisedSky::HosekWilkie { model, zenith_direction, sun_direction } => {
-                    let cos_theta = ray.direction.dot(&zenith_direction);
-                    if cos_theta > 0.0 {
-                        let theta = cos_theta.min(1.0).acos();
-                        let cos_gamma = ray.direction.dot(&sun_direction);
-                        let gamma = cos_gamma.min(1.0).max(-1.0).acos();
-
-                        if gamma < model.solar_radius {
-                            Vector4::new(
-                                model.solar_radiance(
-                                    theta,
-                                    cos_theta,
-                                    gamma,
-                                    cos_gamma,
-                                    wavelengths[0],
-                                ),
-                                model.solar_radiance(
-                                    theta,
-                                    cos_theta,
-                                    gamma,
-                                    cos_gamma,
-                                    wavelengths[1],
-                                ),
-                                model.solar_radiance(
-                                    theta,
-                                    cos_theta,
-                                    gamma,
-                                    cos_gamma,
-                                    wavelengths[2],
-                                ),
-                                model.solar_radiance(
-                                    theta,
-                                    cos_theta,
-                                    gamma,
-                                    cos_gamma,
-                                    wavelengths[3],
-                                ),
-                            )
-                        } else {
-                            Vector4::new(
-                                model.radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[0]),
-                                model.radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[1]),
-                                model.radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[2]),
-                                model.radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[3]),
-                            )
-                        }
-                    } else {
-                        Vector4::from_element(0.0)
-                    }
-                }
-            }
+            self.evaluate_sky(ray, wavelengths)
         }
     }
 }
