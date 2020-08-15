@@ -344,11 +344,15 @@ pub struct BVH {
 
 impl BVH {
     pub fn build<Shape: Bounded>(shapes: &mut [Shape]) -> BVH {
-        let indices = (0..shapes.len()).collect::<Vec<usize>>();
-        let expected_node_count = shapes.len() * 2;
-        let mut nodes = Vec::with_capacity(expected_node_count);
-        BVHNode::build(shapes, &indices, &mut nodes);
-        BVH { nodes }
+        if shapes.len() > 0 {
+            let indices = (0..shapes.len()).collect::<Vec<usize>>();
+            let expected_node_count = shapes.len() * 2;
+            let mut nodes = Vec::with_capacity(expected_node_count);
+            BVHNode::build(shapes, &indices, &mut nodes);
+            BVH { nodes }
+        } else {
+            BVH { nodes: Vec::new() }
+        }
     }
 
     pub fn traverse<'a, Shape: Intersect>(
@@ -357,7 +361,11 @@ impl BVH {
         start: Option<&Shape>,
         shapes: &'a [Shape],
     ) -> Option<(&'a Shape, Shape::Intersection)> {
-        BVHNode::traverse_recursive(&self.nodes, 0, ray, start, shapes, f32::INFINITY)
+        if self.nodes.len() > 0 {
+            BVHNode::traverse_recursive(&self.nodes, 0, ray, start, shapes, f32::INFINITY)
+        } else {
+            None
+        }
     }
 }
 
