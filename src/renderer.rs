@@ -228,6 +228,9 @@ pub async fn renderer(
         },
         Event::WindowEvent { event: WindowEvent::Focused(focused), .. } => {
             active = focused;
+            if active && is_done {
+                window.request_redraw()
+            }
         }
         Event::MainEventsCleared => {
             if active && !is_done {
