@@ -58,9 +58,18 @@ impl From<DynamicImage> for Image<f32> {
         let height = img.height();
 
         let mut data = Vec::with_capacity(width as usize * height as usize);
-        for y in 0..height {
-            for x in 0..width {
-                data.push(Color::<XYZ>::from(Color::<SRGB>::from(img.get_pixel(x, y))).y());
+
+        if img.color().has_alpha() {
+            for y in 0..height {
+                for x in 0..width {
+                    data.push(img.get_pixel(x, y)[3] as f32 / 255.0);
+                }
+            }
+        } else {
+            for y in 0..height {
+                for x in 0..width {
+                    data.push(Color::<XYZ>::from(Color::<SRGB>::from(img.get_pixel(x, y))).y());
+                }
             }
         }
 
@@ -69,7 +78,8 @@ impl From<DynamicImage> for Image<f32> {
 }
 
 pub enum Texture<P> {
-    Texture(Image<P>),
+    Nearest(Image<P>),
+    Bilinear(Image<P>),
     Flat(P),
 }
 
@@ -79,7 +89,16 @@ where
 {
     pub fn sample(&self, u: f32, v: f32) -> P {
         match self {
-            Texture::Texture(tex) => {
+            Texture::Nearest(tex) => {
+                let width = tex.width();
+                let height = tex.height();
+
+                let x = ((u.rem_euclid(1.0)) * width as f32).floor() as u32;
+                let y = ((1.0 - v.rem_euclid(1.0)) * height as f32).floor() as u32;
+
+                tex[(x.rem_euclid(width), y.rem_euclid(height))]
+            }
+            Texture::Bilinear(tex) => {
                 let width = tex.width();
                 let height = tex.height();
 
@@ -212,7 +231,7 @@ impl Material {
             println!("\tdiffuse: {}", path);
             let tex = image::open(mtl_path.with_file_name(path))
                 .with_context(|| format!("failed to load diffuse texture {:?}", path))?;
-            Texture::Texture(tex.into())
+            Texture::Nearest(tex.into())
         } else if let Some(color) = mtl.kd {
             println!("\tdiffuse: {:?}", color);
             Texture::Flat(Color::srgb(color[0], color[1], color[2]))
@@ -225,7 +244,7 @@ impl Material {
             println!("\temit: {}", path);
             let tex = image::open(mtl_path.with_file_name(path))
                 .with_context(|| format!("failed to load emissive texture {:?}", path))?;
-            Emit::AbsorbedD65 { absorption: Texture::Texture(tex.into()) }
+            Emit::AbsorbedD65 { absorption: Texture::Nearest(tex.into()) }
         } else if let Some(color) = mtl.ke {
             println!("\temit: {:?}", color);
             Emit::AbsorbedD65 {
@@ -243,7 +262,7 @@ impl Material {
             println!("\tdissolve: {}", path);
             let tex = image::open(mtl_path.with_file_name(path))
                 .with_context(|| format!("failed to load dissolve texture {:?}", path))?;
-            Texture::Texture(tex.into())
+            Texture::Nearest(tex.into())
         } else {
             println!("\tdissolve: no");
             Texture::Flat(1.0)

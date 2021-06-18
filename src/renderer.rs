@@ -1,9 +1,14 @@
 use anyhow::{Context, Error};
+use std::borrow::Cow;
+use std::io::Write;
+use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+use wgpu::util::DeviceExt;
+use winit::event::{Event, WindowEvent};
 use winit::event_loop::ControlFlow;
+use winit::window::Fullscreen;
 
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
@@ -39,22 +44,28 @@ pub async fn renderer(
         .with_title(title)
         .build(&event_loop)
         .context("failed to create the window")?;
-    let surface = wgpu::Surface::create(&window);
-    let adapter = wgpu::Adapter::request(
-        &wgpu::RequestAdapterOptions {
+    let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+    // TODO: safety
+    let surface = unsafe { instance.create_surface(&window) };
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: Some(&surface),
-        },
-        wgpu::BackendBit::all(),
-    )
-    .await
-    .context("failed to request an adapter")?;
-    let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor::default()).await;
+        })
+        .await
+        .context("failed to request an adapter")?;
+    let (device, queue) = adapter
+        .request_device(&wgpu::DeviceDescriptor::default(), None)
+        .await
+        .context("failed to request a device")?;
 
     let texture_descriptor = wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d { width: width as u32, height: height as u32, depth: 1 },
-        array_layer_count: 1,
+        label: Some("texture_descriptor"),
+        size: wgpu::Extent3d {
+            width: width as u32,
+            height: height as u32,
+            depth_or_array_layers: 1,
+        },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -63,112 +74,147 @@ pub async fn renderer(
     };
 
     let texture = device.create_texture(&texture_descriptor);
-    let texture_view = texture.create_default_view();
+    let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-    let frag_shader =
-        device.create_shader_module(&include!(concat!(env!("OUT_DIR"), "/shader.frag.spv.rs")));
-    let vert_shader =
-        device.create_shader_module(&include!(concat!(env!("OUT_DIR"), "/shader.vert.spv.rs")));
+    let frag_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        label: Some("frag_shader"),
+        source: wgpu::ShaderSource::SpirV(Cow::Borrowed(&include!(concat!(
+            env!("OUT_DIR"),
+            "/shader.frag.spv.rs"
+        )))),
+        flags: wgpu::ShaderFlags::VALIDATION,
+    });
+    let vert_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        label: Some("vert_shader"),
+        source: wgpu::ShaderSource::SpirV(Cow::Borrowed(&include!(concat!(
+            env!("OUT_DIR"),
+            "/shader.vert.spv.rs"
+        )))),
+        flags: wgpu::ShaderFlags::VALIDATION,
+    });
 
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        bindings: &[
+        label: Some("bind_group_layout"),
+        entries: &[
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::SampledTexture {
-                    dimension: wgpu::TextureViewDimension::D2,
-                    component_type: wgpu::TextureComponentType::Float,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
                     multisampled: false,
                 },
+                count: None,
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 1,
                 visibility: wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::Sampler { comparison: false },
+                ty: wgpu::BindingType::Sampler { comparison: false, filtering: false },
+                count: None,
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 2,
                 visibility: wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
             },
         ],
-        label: None,
     });
 
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("sampler"),
         address_mode_u: wgpu::AddressMode::ClampToEdge,
         address_mode_v: wgpu::AddressMode::ClampToEdge,
         address_mode_w: wgpu::AddressMode::ClampToEdge,
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::FilterMode::Linear,
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::FilterMode::Nearest,
         lod_min_clamp: 0.0,
         lod_max_clamp: 0.0,
-        compare: wgpu::CompareFunction::Never,
+        compare: None,
+        anisotropy_clamp: None,
+        border_color: None,
     });
 
-    let tone_mapping_buffer = device.create_buffer_with_data(
-        bytemuck::cast_slice(&[1.0f32, 0.0f32]),
-        wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
-    );
+    let tone_mapping_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("tone_mapping_buffer"),
+        contents: bytemuck::cast_slice(&[0.18f32, 1.0f32, 0.0f32]),
+        usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+    });
 
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        bindings: &[
-            wgpu::Binding {
+        label: Some("bind_group"),
+        layout: &bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
                 binding: 0,
                 resource: wgpu::BindingResource::TextureView(&texture_view),
             },
-            wgpu::Binding { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
-            wgpu::Binding {
+            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
+            wgpu::BindGroupEntry {
                 binding: 2,
-                resource: wgpu::BindingResource::Buffer {
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: &tone_mapping_buffer,
-                    range: 0..2 * std::mem::size_of::<f32>() as wgpu::BufferAddress,
-                },
+                    offset: 0,
+                    size: None,
+                }),
             },
         ],
-        layout: &bind_group_layout,
-        label: None,
     });
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("pipeline_layout"),
         bind_group_layouts: &[&bind_group_layout],
+        push_constant_ranges: &[],
     });
 
     let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        layout: &pipeline_layout,
-        vertex_stage: wgpu::ProgrammableStageDescriptor {
-            module: &vert_shader,
+        label: Some("render_pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &&vert_shader,
             entry_point: "main",
-        },
-        fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
-            module: &frag_shader,
-            entry_point: "main",
-        }),
-        rasterization_state: None,
-        primitive_topology: wgpu::PrimitiveTopology::TriangleStrip,
-        color_states: &[wgpu::ColorStateDescriptor {
-            format: wgpu::TextureFormat::Bgra8Unorm,
-            alpha_blend: wgpu::BlendDescriptor::REPLACE,
-            color_blend: wgpu::BlendDescriptor::REPLACE,
-            write_mask: wgpu::ColorWrite::ALL,
-        }],
-        depth_stencil_state: None,
-        vertex_state: wgpu::VertexStateDescriptor {
-            index_format: wgpu::IndexFormat::Uint16,
-            vertex_buffers: &[wgpu::VertexBufferDescriptor {
-                stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
                 step_mode: wgpu::InputStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float2, 1 => Float2],
+                attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
             }],
         },
-        sample_count: 1,
-        sample_mask: u32::MAX,
-        alpha_to_coverage_enabled: false,
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleStrip,
+            strip_index_format: Some(wgpu::IndexFormat::Uint16),
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None,
+            clamp_depth: false,
+            polygon_mode: wgpu::PolygonMode::Fill,
+            conservative: false,
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState {
+            count: 1,
+            mask: u64::MAX,
+            alpha_to_coverage_enabled: false,
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &frag_shader,
+            entry_point: "main",
+            targets: &[wgpu::ColorTargetState {
+                format: wgpu::TextureFormat::Bgra8Unorm,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent::REPLACE,
+                    alpha: wgpu::BlendComponent::REPLACE,
+                }),
+                write_mask: wgpu::ColorWrite::ALL,
+            }],
+        }),
     });
 
     let mut swap_chain_descriptor = wgpu::SwapChainDescriptor {
-        usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+        usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
         format: wgpu::TextureFormat::Bgra8Unorm,
         width: width as u32,
         height: width as u32,
@@ -177,15 +223,17 @@ pub async fn renderer(
 
     let mut swap_chain = device.create_swap_chain(&surface, &swap_chain_descriptor);
 
-    let mut is_done = done.load(Ordering::Acquire);
-    let mut active = true;
-
-    let mut vertex_buffer = device.create_buffer_with_data(
-        bytemuck::cast_slice(&Vertex::rectangle(1.0, 1.0)),
-        wgpu::BufferUsage::VERTEX,
-    );
+    let mut vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("vertex_buffer"),
+        contents: bytemuck::cast_slice(&Vertex::rectangle(1.0, 1.0)),
+        usage: wgpu::BufferUsage::VERTEX,
+    });
 
     let mut framebuffer = vec![0.0; 4 * width * height];
+    let mut is_done = done.load(Ordering::Acquire);
+    let mut active = true;
+    let mut avg_zone = 5.0;
+    let mut white_zone = 10.0;
 
     event_loop.run(move |event, _event_loop, control_flow| match event {
         Event::NewEvents(..) => {
@@ -205,27 +253,36 @@ pub async fn renderer(
                 Vertex::rectangle(scale_h / scale_w, 1.0)
             };
 
-            vertex_buffer = device.create_buffer_with_data(
-                bytemuck::cast_slice(&vertices),
-                wgpu::BufferUsage::VERTEX,
-            );
+            vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("vertex_buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsage::VERTEX,
+            });
         }
-        Event::WindowEvent {
-            event:
-                WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
-                            state: ElementState::Released, virtual_keycode: Some(key), ..
-                        },
-                    ..
-                },
-            ..
-        } => match key {
-            VirtualKeyCode::Key0 | VirtualKeyCode::Numpad0 => {
-                window.set_inner_size(winit::dpi::PhysicalSize::new(width as u32, height as u32))
+        Event::WindowEvent { event: WindowEvent::ReceivedCharacter(c), .. } => {
+            match c {
+                '0' => {
+                    window
+                        .set_inner_size(winit::dpi::PhysicalSize::new(width as u32, height as u32));
+                    avg_zone = 5.0;
+                    white_zone = 10.0;
+                }
+                '+' => avg_zone += 0.25,
+                '-' => avg_zone -= 0.25,
+                '*' => white_zone += 0.25,
+                '/' => white_zone -= 0.25,
+                'f' => {
+                    let fullscreen = if window.fullscreen().is_none() {
+                        Some(Fullscreen::Borderless(window.current_monitor()))
+                    } else {
+                        None
+                    };
+                    window.set_fullscreen(fullscreen);
+                }
+                _ => (),
             }
-            _ => (),
-        },
+            window.request_redraw();
+        }
         Event::WindowEvent { event: WindowEvent::Focused(focused), .. } => {
             active = focused;
             if active && is_done {
@@ -239,7 +296,7 @@ pub async fn renderer(
             is_done = done.load(Ordering::Acquire);
         }
         Event::RedrawRequested(..) => {
-            let frame = match swap_chain.get_next_texture() {
+            let frame = match swap_chain.get_current_frame() {
                 Ok(frame) => frame,
                 Err(err) => {
                     eprintln!("ERROR: failed to get the next frame in the swap chain: {:?}", err);
@@ -251,7 +308,6 @@ pub async fn renderer(
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
             let mut log_total_luminance = 0.0;
-            let mut max_luminance = f32::NEG_INFINITY;
 
             for (dst, src) in framebuffer.chunks_mut(4).zip(buffer.chunks(4)) {
                 dst[0] = f32::from_bits(src[0].load(Ordering::Relaxed));
@@ -260,71 +316,85 @@ pub async fn renderer(
                 dst[3] = f32::from_bits(src[3].load(Ordering::Relaxed));
 
                 log_total_luminance += (0.001 + dst[1].abs()).ln();
-                max_luminance = max_luminance.max(dst[1]);
             }
-            // `avg_luminance` gets mapped to zone V (middle gray) and `max_luminance` to zone X.
-            // Make sure that `max_luminance` is 32 times brighter than `avg_luminance` so that
-            // the image isn't blown out to white.
             let avg_luminance = (4.0 * log_total_luminance / framebuffer.len() as f32).exp();
-            let max_luminance = max_luminance.max(avg_luminance * 32.0);
+            let max_luminance = avg_luminance * 2.0f32.powf(white_zone - avg_zone);
+            let middle_gray = 0.18 * 2.0f32.powf(avg_zone - 5.0);
 
-            println!("avg {:8.4} max {:8.4}", avg_luminance, max_luminance);
-            let new_tone_mapping_buffer = device.create_buffer_with_data(
-                bytemuck::cast_slice(&[avg_luminance, max_luminance]),
-                wgpu::BufferUsage::COPY_SRC,
-            );
+            {
+                let stdout = std::io::stdout();
+                let mut stdout = stdout.lock();
+                let _ = write!(
+                    stdout,
+                    "\r\x1B[2Kavg {:8.4} (zone {}) max {:8.4} (zone {})",
+                    avg_luminance, avg_zone, max_luminance, white_zone
+                );
+                let _ = stdout.flush();
+            }
+            let new_tone_mapping_buffer =
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("new_tone_mapping_buffer"),
+                    contents: bytemuck::cast_slice(&[middle_gray, avg_luminance, max_luminance]),
+                    usage: wgpu::BufferUsage::COPY_SRC,
+                });
             encoder.copy_buffer_to_buffer(
                 &new_tone_mapping_buffer,
                 0,
                 &tone_mapping_buffer,
                 0,
-                2 * std::mem::size_of::<f32>() as wgpu::BufferAddress,
+                3 * std::mem::size_of::<f32>() as wgpu::BufferAddress,
             );
 
-            let framebuffer_buffer = device.create_buffer_with_data(
-                bytemuck::cast_slice(&framebuffer),
-                wgpu::BufferUsage::COPY_SRC,
-            );
+            let framebuffer_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("framebuffer_buffer"),
+                contents: bytemuck::cast_slice(&framebuffer),
+                usage: wgpu::BufferUsage::COPY_SRC,
+            });
 
             encoder.copy_buffer_to_texture(
-                wgpu::BufferCopyView {
+                wgpu::ImageCopyBuffer {
                     buffer: &framebuffer_buffer,
-                    offset: 0,
-                    bytes_per_row: (4 * width * std::mem::size_of::<f32>()) as u32,
-                    rows_per_image: 0,
+                    layout: wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(
+                            NonZeroU32::new((4 * width * std::mem::size_of::<f32>()) as u32)
+                                .expect("framebuffer stride is zero"),
+                        ),
+                        rows_per_image: None,
+                    },
                 },
-                wgpu::TextureCopyView {
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
-                    texture: &texture,
-                    array_layer: 0,
                 },
-                wgpu::Extent3d { width: width as u32, height: height as u32, depth: 1 },
+                wgpu::Extent3d {
+                    width: width as u32,
+                    height: height as u32,
+                    depth_or_array_layers: 1,
+                },
             );
 
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                        attachment: &frame.view,
+                    label: Some("pass"),
+                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                        view: &frame.output.view,
                         resolve_target: None,
-                        load_op: wgpu::LoadOp::Clear,
-                        store_op: wgpu::StoreOp::Store,
-                        clear_color: wgpu::Color::BLACK,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: true,
+                        },
                     }],
                     depth_stencil_attachment: None,
                 });
                 pass.set_pipeline(&render_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
-                pass.set_vertex_buffer(
-                    0,
-                    &vertex_buffer,
-                    0,
-                    4 * std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-                );
+                pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 pass.draw(0..4, 0..1);
             }
 
-            queue.submit(&[encoder.finish()]);
+            queue.submit([encoder.finish()]);
         }
         Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
             *control_flow = ControlFlow::Exit;

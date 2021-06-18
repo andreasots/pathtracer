@@ -321,11 +321,15 @@ impl Scene {
             emit: Vector4<f32>,
         }
 
-        let mut camera_subpath = ArrayVec::<[Bounce; 16]>::new();
+        let mut camera_subpath = ArrayVec::<Bounce, 16>::new();
 
         let mut start = start;
 
-        while camera_subpath.len() < camera_subpath.capacity() {
+        for _ in 0..1024 {
+            if camera_subpath.len() == camera_subpath.capacity() {
+                break;
+            }
+
             if let Some((triangle, intersection)) = self.bvh.traverse(&ray, start, &self.triangles)
             {
                 if let Some(mut sample) = self.materials[triangle.material_index()].sample(

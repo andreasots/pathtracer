@@ -117,7 +117,7 @@ fn main() -> Result<(), Error> {
 
             let end = std::time::Instant::now();
 
-            println!("Rendered in {:.02} seconds", end.duration_since(start).as_secs_f64());
+            println!("\x1B[2KRendered in {:.02} seconds", end.duration_since(start).as_secs_f64());
 
             done.store(true, Ordering::Release);
         });
