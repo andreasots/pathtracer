@@ -3,31 +3,6 @@ use serde::Deserialize;
 use std::fmt::Debug;
 use std::path::Path;
 
-fn compile_shader(
-    compiler: &mut shaderc::Compiler,
-    kind: shaderc::ShaderKind,
-    src_path: &str,
-    dst_path: &Path,
-) -> Result<(), Error> {
-    println!("cargo:rerun-if-changed={}", src_path);
-
-    let shader_src = std::fs::read_to_string(src_path)
-        .with_context(|| format!("failed to read {:?}", src_path))?;
-
-    let shader = compiler
-        .compile_into_spirv(&shader_src, kind, src_path, "main", None)
-        .with_context(|| format!("failed to compile {:?}", src_path))?;
-
-    if shader.get_num_warnings() > 0 {
-        println!("cargo:warning={}", shader.get_warning_messages());
-    }
-
-    std::fs::write(dst_path, format!("{:?}", shader.as_binary()).as_bytes())
-        .with_context(|| format!("failed to write {:?}", dst_path))?;
-
-    Ok(())
-}
-
 fn csv_to_table<T, U, F>(src_path: &str, dst_path: &Path, f: F) -> Result<(), Error>
 where
     T: for<'de> Deserialize<'de>,
@@ -57,24 +32,6 @@ where
 fn main() -> Result<(), Error> {
     let base_dir = std::env::var_os("OUT_DIR").expect("OUT_DIR not set");
     let base_dir = std::path::Path::new(&base_dir);
-
-    let mut compiler = shaderc::Compiler::new().context("failed to create the shaderc compiler")?;
-
-    compile_shader(
-        &mut compiler,
-        shaderc::ShaderKind::Fragment,
-        "src/shader.frag.glsl",
-        &base_dir.join("shader.frag.spv.rs"),
-    )
-    .context("failed to compile the fragment shader")?;
-
-    compile_shader(
-        &mut compiler,
-        shaderc::ShaderKind::Vertex,
-        "src/shader.vert.glsl",
-        &base_dir.join("shader.vert.spv.rs"),
-    )
-    .context("failed to compile the vertex shader")?;
 
     csv_to_table::<[f32; 3], _, _>(
         "src/data/RGB-Components-CIE-1931-1nm.csv",
@@ -114,21 +71,6 @@ fn main() -> Result<(), Error> {
         },
     )
     .context("failed to convert the D64 illuminant table")?;
-
-    cc::Build::new().file("src/hosek-wilkie/ArHosekSkyModel.c").compile("hosek-wilkie");
-
-    println!("cargo:rerun-if-changed=src/hosek-wilkie/ArHosekSkyModel.h");
-    let bindings = bindgen::Builder::default()
-        .header("src/hosek-wilkie/ArHosekSkyModel.h")
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks))
-        .generate()
-        .expect(
-            "failed to generate bindings for the Hosek-Wilkie sky model reference implementation",
-        );
-
-    bindings.write_to_file(base_dir.join("ar_hosek_sky_model.rs")).context(
-        "failed to write the bindings for the Hosek-Wilkie sky model reference implementation",
-    )?;
 
     Ok(())
 }
