@@ -1,11 +1,11 @@
 use crate::bvh::Ray;
 use crate::color::{Color, SRGB, XYZ};
-use crate::distributions::CosineWeightedHemisphere;
 use crate::triangle::{Intersection, Triangle};
 use anyhow::{Context, Error};
 use image::{DynamicImage, GenericImageView};
-use nalgebra::{Matrix3, Vector3, Vector4};
+use nalgebra::{Vector3, Vector4};
 use rand::Rng;
+use rand_distr::UnitSphere;
 use std::ops::{Add, Index, Mul};
 use std::path::Path;
 
@@ -154,6 +154,7 @@ pub trait Bsdf {
     /// returns new ray direction and the sample contribution `BSDF(d) / pdf(d)`
     fn sample<R>(
         &self,
+        normal: Vector3<f32>,
         u: f32,
         v: f32,
         wavelengths: [f32; 4],
@@ -172,6 +173,7 @@ pub struct Lambert {
 impl Bsdf for Lambert {
     fn sample<R>(
         &self,
+        normal: Vector3<f32>,
         u: f32,
         v: f32,
         wavelengths: [f32; 4],
@@ -182,7 +184,7 @@ impl Bsdf for Lambert {
     {
         let reflectance = self.reflectance.sample(u, v).reflectance_at4(wavelengths);
         // The normalization factor is 1/pi and the PDF of the sampler is also 1/pi so they cancel out.
-        (rng.sample(CosineWeightedHemisphere), reflectance)
+        (normal + Vector3::from(rng.sample(UnitSphere)), reflectance)
     }
 
     fn calculate(&self, u: f32, v: f32, wavelengths: [f32; 4], _dir: Vector3<f32>) -> Vector4<f32> {
@@ -307,24 +309,10 @@ impl Material {
         let normal = if normal.dot(&ray.direction) < 0.0 { normal } else { -normal };
 
         let normal = normal.normalize();
-        let tangent_space = {
-            // TODO: calculate `(u, v)` from the texture mapping.
-            let v = if normal.x.abs() > 0.1 {
-                Vector3::new(0.0, 1.0, 0.0)
-            } else {
-                Vector3::new(1.0, 0.0, 0.0)
-            };
-            let u = v.cross(&normal).normalize();
-            let v = normal.cross(&u);
-
-            // TODO: technically this should also transform the origin to `p`
-            Matrix3::from_columns(&[u, v, normal]).to_homogeneous()
-        };
 
         let p = ray.origin + ray.direction * intersection.distance;
 
-        let (d, weight) = self.bsdf.sample(u, v, wavelengths, rng);
-        let d = tangent_space.transform_vector(&d);
+        let (d, weight) = self.bsdf.sample(normal, u, v, wavelengths, rng);
 
         Some(Sample { emit: self.emit.sample(u, v, wavelengths), weight, new_ray: Ray::new(p, d) })
     }

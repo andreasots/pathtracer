@@ -12,7 +12,6 @@ use std::sync::Arc;
 mod bvh;
 mod camera;
 mod color;
-mod distributions;
 mod hosek_wilkie;
 mod material;
 mod renderer;
