@@ -378,7 +378,6 @@ pub struct Ray {
 
 impl Ray {
     pub fn new(origin: Point3<f32>, direction: Vector3<f32>) -> Ray {
-        let direction = direction.normalize();
         Ray {
             origin,
             direction,
