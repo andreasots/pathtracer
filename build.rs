@@ -44,30 +44,7 @@ fn main() -> Result<(), Error> {
         "src/data/Illuminantd65.csv",
         &base_dir.join("d65.rs"),
         |data| {
-            let mut avg = 0.0;
-            let mut n = 0.0;
-
-            fn gauss(wavelength: f32, weight: f32, mean: f32, stddev1: f32, stddev2: f32) -> f32 {
-                weight
-                    * (-0.5
-                        * ((wavelength - mean) * if wavelength < mean { stddev1 } else { stddev2 })
-                            .powi(2))
-                    .exp()
-            }
-
-            for &(wavelength, radiance) in &data {
-                if wavelength < 360 || wavelength > 830 {
-                    continue;
-                }
-
-                avg += radiance
-                    * (gauss(wavelength as f32, 0.821, 568.8, 0.0213, 0.0247)
-                        + gauss(wavelength as f32, 0.286, 530.9, 0.0613, 0.0322));
-                n += 1.0;
-            }
-            avg /= n;
-
-            data.into_iter().map(|(_, radiance)| radiance / avg).collect()
+            data.into_iter().map(|(_, radiance)| radiance).collect()
         },
     )
     .context("failed to convert the D64 illuminant table")?;
