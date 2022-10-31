@@ -80,20 +80,20 @@ fn main() -> Result<(), Error> {
                             let ray = camera.generate_ray(x, y);
 
                             let wavelength_width = MAX_WAVELENGTH - MIN_WAVELENGTH;
-                            let hero_wavelength = rng.sample(Uniform::new(0.0, wavelength_width / COLOR_SAMPLES as f32));
-                            let wavelengths =
-                                std::array::from_fn::<f32, COLOR_SAMPLES, _>(|i| {
-                                    MIN_WAVELENGTH
-                                        + (hero_wavelength
-                                            + wavelength_width
-                                                * (i as f32 / COLOR_SAMPLES as f32))
-                                });
+                            let hero_wavelength = rng
+                                .sample(Uniform::new(0.0, wavelength_width / COLOR_SAMPLES as f32));
+                            let wavelengths = std::array::from_fn::<f32, COLOR_SAMPLES, _>(|i| {
+                                MIN_WAVELENGTH
+                                    + (hero_wavelength
+                                        + wavelength_width * (i as f32 / COLOR_SAMPLES as f32))
+                            });
 
                             let radiance = scene.radiance(ray, wavelengths, &mut rng, None);
 
                             for i in 0..COLOR_SAMPLES {
-                                accumulator +=
-                                    Color::from_wavelength(wavelengths[i]) * radiance[i] * (1.0 / COLOR_SAMPLES as f32);
+                                accumulator += Color::from_wavelength(wavelengths[i])
+                                    * radiance[i]
+                                    * (1.0 / COLOR_SAMPLES as f32);
                             }
                         }
 
