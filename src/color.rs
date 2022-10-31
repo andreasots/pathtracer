@@ -1,5 +1,5 @@
 use image::{Primitive, Rgba};
-use nalgebra::{Matrix3, Vector3, Vector4};
+use nalgebra::{Matrix3, Vector3, SVector};
 use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Mul};
 
@@ -38,7 +38,7 @@ impl Color<SRGB> {
         self.0.z
     }
 
-    pub fn reflectance_at(&self, wavelength: f32) -> f32 {
+    pub fn reflectance_at_one(&self, wavelength: f32) -> f32 {
         const TABLE: &[[f32; 3]] = &include!(concat!(env!("OUT_DIR"), "/srgb2reflectance.rs"));
 
         let offset = wavelength - 360.0;
@@ -46,19 +46,15 @@ impl Color<SRGB> {
         let alpha = offset - index;
         let index = index as usize;
 
-        let base_reflectance =
-            Vector3::from(TABLE[index]).lerp(&Vector3::from(TABLE[index + 1]), alpha);
+        let base_reflectance_0 = Vector3::from(TABLE.get(index).copied().unwrap_or([0.0; 3]));
+        let base_reflectance_1 = Vector3::from(TABLE.get(index + 1).copied().unwrap_or([0.0; 3]));
+        let base_reflectance = base_reflectance_0.lerp(&base_reflectance_1, alpha);
 
         self.0.dot(&base_reflectance)
     }
 
-    pub fn reflectance_at4(&self, wavelengths: [f32; 4]) -> Vector4<f32> {
-        Vector4::new(
-            self.reflectance_at(wavelengths[0]),
-            self.reflectance_at(wavelengths[1]),
-            self.reflectance_at(wavelengths[2]),
-            self.reflectance_at(wavelengths[3]),
-        )
+    pub fn reflectance_at<const N: usize>(&self, wavelengths: [f32; N]) -> SVector<f32, N> {
+        SVector::from_fn(|i, _| self.reflectance_at_one(wavelengths[i]))
     }
 }
 

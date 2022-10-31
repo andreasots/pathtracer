@@ -3,7 +3,7 @@ use crate::color::{Color, SRGB, XYZ};
 use crate::triangle::{Intersection, Triangle};
 use anyhow::{Context, Error};
 use image::{DynamicImage, GenericImageView};
-use nalgebra::{Vector3, Vector4};
+use nalgebra::{Vector3, SVector};
 use rand::Rng;
 use rand_distr::UnitSphere;
 use std::ops::{Add, Index, Mul};
@@ -129,7 +129,7 @@ where
 pub struct D65;
 
 impl D65 {
-    pub fn sample(&self, wavelength: f32) -> f32 {
+    pub fn sample_one(&self, wavelength: f32) -> f32 {
         const TABLE: &[f32] = &include!(concat!(env!("OUT_DIR"), "/d65.rs"));
 
         let offset = wavelength.floor() - 300.0 as f32;
@@ -137,16 +137,11 @@ impl D65 {
         let alpha = offset - index;
         let index = index as usize;
 
-        TABLE[index] * (1.0 - alpha) + TABLE[index + 1] * alpha
+        TABLE.get(index).copied().unwrap_or(0.0) * (1.0 - alpha) + TABLE.get(index + 1).copied().unwrap_or(0.0) * alpha
     }
 
-    pub fn sample4(&self, wavelengths: [f32; 4]) -> Vector4<f32> {
-        Vector4::new(
-            self.sample(wavelengths[0]),
-            self.sample(wavelengths[1]),
-            self.sample(wavelengths[2]),
-            self.sample(wavelengths[3]),
-        )
+    pub fn sample<const N: usize>(&self, wavelengths: [f32; N]) -> SVector<f32, N> {
+        SVector::from_fn(|i, _| self.sample_one(wavelengths[i]))
     }
 }
 
@@ -155,14 +150,14 @@ pub struct Lambert {
 }
 
 impl Lambert {
-    fn sample<R>(
+    fn sample<R, const N: usize>(
         &self,
         normal: Vector3<f32>,
         u: f32,
         v: f32,
-        wavelengths: [f32; 4],
+        wavelengths: [f32; N],
         rng: &mut R,
-    ) -> (Vector3<f32>, Vector4<f32>)
+    ) -> (Vector3<f32>, SVector<f32, N>)
     where
         R: Rng + ?Sized,
     {
@@ -172,7 +167,7 @@ impl Lambert {
             // TLDR: unit sphere offset by the shading normal
             normal + Vector3::from(rng.sample(UnitSphere)),
             // The normalization factor 1/pi is cancelled out by the sampler.
-            self.reflectance.sample(u, v).reflectance_at4(wavelengths),
+            self.reflectance.sample(u, v).reflectance_at(wavelengths),
         )
     }
 }
@@ -183,20 +178,20 @@ pub enum Emit {
 }
 
 impl Emit {
-    fn sample(&self, u: f32, v: f32, wavelengths: [f32; 4]) -> Vector4<f32> {
+    fn sample<const N: usize>(&self, u: f32, v: f32, wavelengths: [f32; N]) -> SVector<f32, N> {
         match self {
             Self::AbsorbedD65 { absorption } => D65
-                .sample4(wavelengths)
-                .component_mul(&absorption.sample(u, v).reflectance_at4(wavelengths)),
-            Self::Null => Vector4::from_element(0.0),
+                .sample(wavelengths)
+                .component_mul(&absorption.sample(u, v).reflectance_at(wavelengths)),
+            Self::Null => SVector::from_element(0.0),
         }
     }
 }
 
-pub struct Sample {
-    pub emit: Vector4<f32>,
+pub struct Sample<const N: usize> {
+    pub emit: SVector<f32, N>,
     /// BRDF(..) * n.dot(&-ray.direction)
-    pub weight: Vector4<f32>,
+    pub weight: SVector<f32, N>,
     pub new_ray: Ray,
 }
 
@@ -257,14 +252,14 @@ impl Material {
         Ok(Material { bsdf: Lambert { reflectance: diffuse }, emit, base_dissolve, dissolve })
     }
 
-    pub fn sample<R>(
+    pub fn sample<R, const N: usize>(
         &self,
         ray: Ray,
-        wavelengths: [f32; 4],
+        wavelengths: [f32; N],
         intersection: Intersection,
         triangle: &Triangle,
         rng: &mut R,
-    ) -> Option<Sample>
+    ) -> Option<Sample<N>>
     where
         R: Rng + ?Sized,
     {

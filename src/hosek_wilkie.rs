@@ -30,7 +30,7 @@
 
 #![allow(clippy::excessive_precision)]
 
-use nalgebra::Vector4;
+use nalgebra::SVector;
 
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub struct HosekWilkieSkyModel {
@@ -71,7 +71,7 @@ impl HosekWilkieSkyModel {
         state
     }
 
-    pub fn radiance(&self, cos_theta: f32, gamma: f32, cos_gamma: f32, wavelength: f32) -> f32 {
+    pub fn radiance_one(&self, cos_theta: f32, gamma: f32, cos_gamma: f32, wavelength: f32) -> f32 {
         let low_wl = ((wavelength - 320.0) / 40.0) as usize;
         if low_wl >= 11 {
             return 0.0;
@@ -101,22 +101,17 @@ impl HosekWilkieSkyModel {
         result
     }
 
-    pub fn radiance4(
+    pub fn radiance<const N: usize>(
         &self,
         cos_theta: f32,
         gamma: f32,
         cos_gamma: f32,
-        wavelengths: [f32; 4],
-    ) -> Vector4<f32> {
-        Vector4::new(
-            self.radiance(cos_theta, gamma, cos_gamma, wavelengths[0]),
-            self.radiance(cos_theta, gamma, cos_gamma, wavelengths[1]),
-            self.radiance(cos_theta, gamma, cos_gamma, wavelengths[2]),
-            self.radiance(cos_theta, gamma, cos_gamma, wavelengths[3]),
-        )
+        wavelengths: [f32; N],
+    ) -> SVector<f32, N> {
+        SVector::from_fn(|i, _| self.radiance_one(cos_theta, gamma, cos_gamma, wavelengths[i]))
     }
 
-    pub fn solar_radiance(
+    pub fn solar_radiance_one(
         &self,
         theta: f32,
         cos_theta: f32,
@@ -130,25 +125,20 @@ impl HosekWilkieSkyModel {
 
         let direct_radiance =
             self.solar_radiance_internal2(wavelength, std::f32::consts::FRAC_PI_2 - theta, gamma);
-        let inscattered_radiance = self.radiance(cos_theta, gamma, cos_gamma, wavelength);
+        let inscattered_radiance = self.radiance_one(cos_theta, gamma, cos_gamma, wavelength);
 
         direct_radiance + inscattered_radiance
     }
 
-    pub fn solar_radiance4(
+    pub fn solar_radiance<const N: usize>(
         &self,
         theta: f32,
         cos_theta: f32,
         gamma: f32,
         cos_gamma: f32,
-        wavelengths: [f32; 4],
-    ) -> Vector4<f32> {
-        Vector4::new(
-            self.solar_radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[0]),
-            self.solar_radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[1]),
-            self.solar_radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[2]),
-            self.solar_radiance(theta, cos_theta, gamma, cos_gamma, wavelengths[3]),
-        )
+        wavelengths: [f32; N],
+    ) -> SVector<f32, N> {
+        SVector::from_fn(|i, _| self.solar_radiance_one(theta, cos_theta, gamma, cos_gamma, wavelengths[i]))
     }
 
     fn cook_configuration(

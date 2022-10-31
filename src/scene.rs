@@ -3,7 +3,7 @@ use crate::material::{Material, D65};
 use crate::{hosek_wilkie::HosekWilkieSkyModel, triangle::Triangle};
 use anyhow::{Context, Error};
 use arrayvec::ArrayVec;
-use nalgebra::{Matrix4, Point2, Point3, Vector3, Vector4};
+use nalgebra::{Matrix4, Point2, Point3, Vector3, SVector};
 use obj::{IndexTuple, Obj, ObjMaterial};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -281,10 +281,10 @@ impl Scene {
         })
     }
 
-    fn evaluate_sky(&self, ray: Ray, wavelengths: [f32; 4]) -> Vector4<f32> {
+    fn evaluate_sky<const N: usize>(&self, ray: Ray, wavelengths: [f32; N]) -> SVector<f32, N> {
         match self.sky {
-            InitialisedSky::D65 { power } if power == 0.0 => Vector4::from_element(0.0),
-            InitialisedSky::D65 { power } => D65.sample4(wavelengths) * power,
+            InitialisedSky::D65 { power } if power == 0.0 => SVector::from_element(0.0),
+            InitialisedSky::D65 { power } => D65.sample(wavelengths) * power,
             InitialisedSky::HosekWilkie { model, zenith_direction, sun_direction } => {
                 let cos_theta = ray.direction.dot(&zenith_direction);
                 if cos_theta > 0.0 {
@@ -293,35 +293,35 @@ impl Scene {
                     let gamma = cos_gamma.min(1.0).max(-1.0).acos();
 
                     if gamma < model.solar_radius {
-                        model.solar_radiance4(theta, cos_theta, gamma, cos_gamma, wavelengths)
+                        model.solar_radiance(theta, cos_theta, gamma, cos_gamma, wavelengths)
                     } else {
-                        model.radiance4(cos_theta, gamma, cos_gamma, wavelengths)
+                        model.radiance(cos_theta, gamma, cos_gamma, wavelengths)
                     }
                 } else {
-                    Vector4::from_element(0.0)
+                    SVector::from_element(0.0)
                 }
             }
         }
     }
 
-    pub fn radiance<R>(
+    pub fn radiance<R, const N: usize>(
         &self,
         mut ray: Ray,
-        wavelengths: [f32; 4],
+        wavelengths: [f32; N],
         rng: &mut R,
         start: Option<&Triangle>,
-    ) -> Vector4<f32>
+    ) -> SVector<f32, N>
     where
         R: Rng + ?Sized,
     {
         #[derive(Copy, Clone)]
-        struct Bounce {
+        struct Bounce<const N: usize> {
             /// BRDF(...) * n.dot(&-ray.direction)
-            weight: Vector4<f32>,
-            emit: Vector4<f32>,
+            weight: SVector<f32, N>,
+            emit: SVector<f32, N>,
         }
 
-        let mut camera_subpath = ArrayVec::<Bounce, 16>::new();
+        let mut camera_subpath = ArrayVec::<Bounce<N>, 16>::new();
 
         let mut start = start;
 
@@ -345,7 +345,7 @@ impl Scene {
                             sample.weight /= max;
                         } else {
                             camera_subpath.push(Bounce {
-                                weight: Vector4::from_element(0.0),
+                                weight: SVector::from_element(0.0),
                                 emit: sample.emit,
                             });
                             break;
@@ -361,14 +361,14 @@ impl Scene {
                 }
             } else {
                 camera_subpath.push(Bounce {
-                    weight: Vector4::from_element(0.0),
+                    weight: SVector::from_element(0.0),
                     emit: self.evaluate_sky(ray, wavelengths),
                 });
                 break;
             }
         }
 
-        camera_subpath.iter().rev().fold(Vector4::from_element(0.0), |radiance, bounce| {
+        camera_subpath.iter().rev().fold(SVector::from_element(0.0), |radiance, bounce| {
             radiance.component_mul(&bounce.weight) + bounce.emit
         })
     }

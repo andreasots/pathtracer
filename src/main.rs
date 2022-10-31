@@ -23,6 +23,7 @@ const MIN_WAVELENGTH: f32 = 360.0;
 const MAX_WAVELENGTH: f32 = 830.0;
 
 const TILE_SIZE: usize = 32;
+const COLOR_SAMPLES: usize = 8;
 
 fn main() -> Result<(), Error> {
     simple_logger::init().context("failed to init logging")?;
@@ -79,30 +80,21 @@ fn main() -> Result<(), Error> {
                             let ray = camera.generate_ray(x, y);
 
                             let wavelength_width = MAX_WAVELENGTH - MIN_WAVELENGTH;
-                            let hero_wavelength = rng.sample(Uniform::new(0.0, wavelength_width));
-                            let wavelengths = [
-                                MIN_WAVELENGTH + hero_wavelength,
-                                MIN_WAVELENGTH
-                                    + (hero_wavelength + wavelength_width * 0.25)
-                                        .rem_euclid(wavelength_width),
-                                MIN_WAVELENGTH
-                                    + (hero_wavelength + wavelength_width * 0.50)
-                                        .rem_euclid(wavelength_width),
-                                MIN_WAVELENGTH
-                                    + (hero_wavelength + wavelength_width * 0.75)
-                                        .rem_euclid(wavelength_width),
-                            ];
+                            let hero_wavelength = rng.sample(Uniform::new(0.0, wavelength_width / COLOR_SAMPLES as f32));
+                            let wavelengths =
+                                std::array::from_fn::<f32, COLOR_SAMPLES, _>(|i| {
+                                    MIN_WAVELENGTH
+                                        + (hero_wavelength
+                                            + wavelength_width
+                                                * (i as f32 / COLOR_SAMPLES as f32))
+                                });
 
                             let radiance = scene.radiance(ray, wavelengths, &mut rng, None);
 
-                            accumulator +=
-                                Color::from_wavelength(wavelengths[0]) * radiance[0] * 0.25;
-                            accumulator +=
-                                Color::from_wavelength(wavelengths[1]) * radiance[1] * 0.25;
-                            accumulator +=
-                                Color::from_wavelength(wavelengths[2]) * radiance[2] * 0.25;
-                            accumulator +=
-                                Color::from_wavelength(wavelengths[3]) * radiance[3] * 0.25;
+                            for i in 0..COLOR_SAMPLES {
+                                accumulator +=
+                                    Color::from_wavelength(wavelengths[i]) * radiance[i] * (1.0 / COLOR_SAMPLES as f32);
+                            }
                         }
 
                         let color = accumulator * (1.0 / (samples as f32));
