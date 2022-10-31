@@ -150,27 +150,11 @@ impl D65 {
     }
 }
 
-pub trait Bsdf {
-    /// returns new ray direction and the sample contribution `BSDF(d) / pdf(d)`
-    fn sample<R>(
-        &self,
-        normal: Vector3<f32>,
-        u: f32,
-        v: f32,
-        wavelengths: [f32; 4],
-        rng: &mut R,
-    ) -> (Vector3<f32>, Vector4<f32>)
-    where
-        R: Rng + ?Sized;
-
-    fn calculate(&self, u: f32, v: f32, wavelengths: [f32; 4], dir: Vector3<f32>) -> Vector4<f32>;
-}
-
 pub struct Lambert {
     reflectance: Texture<Color<SRGB>>,
 }
 
-impl Bsdf for Lambert {
+impl Lambert {
     fn sample<R>(
         &self,
         normal: Vector3<f32>,
@@ -182,14 +166,14 @@ impl Bsdf for Lambert {
     where
         R: Rng + ?Sized,
     {
-        let reflectance = self.reflectance.sample(u, v).reflectance_at4(wavelengths);
-        // The normalization factor is 1/pi and the PDF of the sampler is also 1/pi so they cancel out.
-        (normal + Vector3::from(rng.sample(UnitSphere)), reflectance)
-    }
-
-    fn calculate(&self, u: f32, v: f32, wavelengths: [f32; 4], _dir: Vector3<f32>) -> Vector4<f32> {
-        let reflectance = self.reflectance.sample(u, v).reflectance_at4(wavelengths);
-        reflectance * std::f32::consts::FRAC_1_PI
+        (
+            // Lambertian Reflection Without Tangents
+            // https://web.archive.org/web/20211207115922/http://amietia.com/lambertnotangent.html
+            // TLDR: unit sphere offset by the shading normal
+            normal + Vector3::from(rng.sample(UnitSphere)),
+            // The normalization factor 1/pi is cancelled out by the sampler.
+            self.reflectance.sample(u, v).reflectance_at4(wavelengths),
+        )
     }
 }
 
