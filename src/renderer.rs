@@ -205,6 +205,7 @@ pub async fn renderer(
         width: width as u32,
         height: width as u32,
         present_mode: wgpu::PresentMode::AutoVsync,
+        alpha_mode: wgpu::CompositeAlphaMode::Opaque,
     };
     surface.configure(&device, &surface_config);
 
