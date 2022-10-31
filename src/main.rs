@@ -16,6 +16,7 @@ mod distributions;
 mod hosek_wilkie;
 mod material;
 mod renderer;
+mod rng;
 mod scene;
 mod triangle;
 
@@ -33,7 +34,8 @@ fn main() -> Result<(), Error> {
 
     let mut buffer = Vec::with_capacity(4 * width * height);
     let uninitialized_buffer_color = loop {
-        let wavelength = rand::thread_rng().sample(Uniform::new(MIN_WAVELENGTH, MAX_WAVELENGTH));
+        let wavelength =
+            crate::rng::ThreadPrng::get().sample(Uniform::new(MIN_WAVELENGTH, MAX_WAVELENGTH));
         let color = Color::from_wavelength(wavelength);
         if color.y() > 0.01 {
             break color * (0.02 / color.y());
@@ -64,7 +66,7 @@ fn main() -> Result<(), Error> {
                 .step_by(TILE_SIZE)
                 .flat_map(|y| (0..width).into_par_iter().map(move |x| (x, y)))
                 .for_each(|(x, y)| {
-                    let mut rng = rand::thread_rng();
+                    let mut rng = crate::rng::ThreadPrng::get();
 
                     let tile_height = std::cmp::min(height - y, TILE_SIZE);
 
